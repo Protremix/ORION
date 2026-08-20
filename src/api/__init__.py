@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Callable, Union, Protocol
 from src.api.auth import AuthManager, AuthConfig, get_auth_manager
+from src.api.permissions import PermissionLevel, Permission, PermissionChecker, get_permission_checker
 
 logger = logging.getLogger(__name__)
 
@@ -77,19 +78,32 @@ class ORIONAPI:
         memory: Optional[Any] = None,
         supervisor: Optional[Any] = None,
         auth_manager: Optional[AuthManager] = None,
+        permission_checker: Optional[PermissionChecker] = None,
     ) -> None:
         self._safety = safety_gateway
         self._hal = hal
         self._memory = memory
         self._supervisor = supervisor
         self._auth = auth_manager or get_auth_manager()
+        self._permissions = permission_checker or get_permission_checker()
 
-    def _check_auth(self, token: Optional[str] = None) -> ORIONResponse:
-        """Check authentication and rate limit. Returns error response if failed."""
+    def _check_auth(
+        self,
+        token: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        action: Optional[str] = None,
+    ) -> ORIONResponse:
+        """Check authentication, permissions, and rate limit. Returns error response if failed."""
         if not self._auth.authenticate(token):
             return ORIONResponse(status=ORIONStatus.UNAUTHORIZED, error="Invalid or missing API key")
         if not self._auth.check_rate_limit(token):
             return ORIONResponse(status=ORIONStatus.RATE_LIMITED, error="Rate limit exceeded")
+        if agent_id is not None and action is not None:
+            if not self._permissions.check_permission(agent_id, action):
+                return ORIONResponse(
+                    status=ORIONStatus.UNAUTHORIZED,
+                    error=f"Agent '{agent_id}' does not have permission for action '{action}'",
+                )
         return ORIONResponse(status=ORIONStatus.OK)
 
     # --- Observation ---
