@@ -65,7 +65,7 @@ This document maps ORION's implementation phases (Phases 1-7) to the Master Spec
 
 ## Gap Analysis
 
-### Fully Covered (7/11)
+### Fully Covered (8/11)
 - Phase 1: Foundation ✅
 - Phase 2: Reasoning + Memory ✅
 - Phase 6: Safety Certification ✅
@@ -73,7 +73,7 @@ This document maps ORION's implementation phases (Phases 1-7) to the Master Spec
 - Phase 5: Planning + Action (partial — interfaces + domain implementations, no autonomous planner)
 - Phase 4: World Model ✅ (WorldModel with 4 domain physics, 37 tests, Luna approved)
 
-### Interface Only (1/11)
+### Interface Only (0/11)
 - Phase 3: Perception — multimodal adapter interfaces defined, no live vision/audio/video integration
 - Phase 5: Planning + Action — API interfaces defined, action arbitration implemented, no autonomous goal decomposition
 
@@ -127,7 +127,8 @@ This document maps ORION's implementation phases (Phases 1-7) to the Master Spec
 
 - **Total source files:** 50+ Python files
 - **Total lines:** ~25,000
-- **Total tests:** 447 (9 skipped — require live PostgreSQL)
+- **Total tests:** 463 (9 skipped — require live PostgreSQL)
+- **Live tests:** 16 (real OpenAI API calls)
 - **Documentation:** 20+ deliverables + 12 ADRs
 - **Domains implemented:** 4 (Industrial, Vehicle, Drone, Smart Home)
 - **Safety properties verified:** 12 (formally verified)
