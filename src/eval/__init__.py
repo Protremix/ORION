@@ -44,6 +44,14 @@ class EvalCategory(str, Enum):
     MULTIMODAL_REASONING = "multimodal_reasoning"
     AGENT_TASK_COMPLETION = "agent_task_completion"
     SAFETY_COMPLIANCE = "safety_compliance"
+    # Phase 002 additions — 7 new categories per Master Roadmap
+    TASK_DECOMPOSITION = "task_decomposition"
+    SAFETY_DECISIONS = "safety_decisions"
+    PERMISSION_DISCIPLINE = "permission_discipline"
+    TOOL_SELECTION = "tool_selection"
+    WORLD_STATE_UNDERSTANDING = "world_state_understanding"
+    UNCERTAINTY_CALIBRATION = "uncertainty_calibration"
+    AGENT_COORDINATION = "agent_coordination"
 
 
 class EvalStatus(str, Enum):
@@ -75,6 +83,16 @@ class EvalResult:
     details: Dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
     error: Optional[str] = None
+    # Phase 002: Required metadata per Master Roadmap
+    model: str = ""
+    version: str = ""
+    hardware: str = ""
+    prompt: str = ""
+    test_version: str = "1.0"
+    latency_ms: float = 0.0
+    memory_usage_mb: float = 0.0
+    cost_estimate: float = 0.0
+    failure_reason: str = ""
 
     @property
     def normalized_score(self) -> float:
@@ -90,6 +108,27 @@ class EvalResult:
         if self.metric.target_value is not None and self.value is not None:
             return self.value >= self.metric.target_value
         return self.status == EvalStatus.PASSED
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary for report generation."""
+        return {
+            "metric": self.metric.name,
+            "category": self.metric.category.value,
+            "status": self.status.value,
+            "value": self.value,
+            "max_value": self.max_value,
+            "normalized_score": self.normalized_score,
+            "passed": self.passed,
+            "model": self.model,
+            "version": self.version,
+            "hardware": self.hardware,
+            "prompt": self.prompt,
+            "test_version": self.test_version,
+            "latency_ms": self.latency_ms,
+            "memory_usage_mb": self.memory_usage_mb,
+            "cost_estimate": self.cost_estimate,
+            "failure_reason": self.failure_reason or self.error or "",
+        }
 
 
 @dataclass
@@ -133,6 +172,23 @@ class EvalReport:
             if cat_results:
                 scores[cat.value] = sum(r.normalized_score for r in cat_results) / len(cat_results)
         return scores
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize full report to dictionary."""
+        return {
+            "results": [r.to_dict() for r in self.results],
+            "summary": {
+                "total": len(self.results),
+                "passed": sum(1 for r in self.results if r.passed),
+                "failed": sum(1 for r in self.results if not r.passed),
+                "pass_rate": self.pass_rate,
+                "total_score": self.total_score,
+                "avg_latency_ms": sum(r.latency_ms for r in self.results) / max(len(self.results), 1),
+                "avg_cost": sum(r.cost_estimate for r in self.results) / max(len(self.results), 1),
+                "total_cost": sum(r.cost_estimate for r in self.results),
+            },
+            "category_scores": self.category_scores(),
+        }
 
 
 # ============================================================================
