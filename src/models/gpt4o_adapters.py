@@ -19,6 +19,7 @@ import logging
 import os
 import time
 import urllib.request
+import urllib.error
 from typing import Any, Dict, List, Optional
 
 from src.models import (
@@ -36,23 +37,49 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 def _openai_request(endpoint: str, payload: dict, api_key: Optional[str] = None,
-                    timeout: float = 60.0) -> dict:
-    """Make a request to OpenAI API."""
+                    timeout: float = 60.0, max_retries: int = 3) -> dict:
+    """Make a request to OpenAI API with HTTPS enforcement and retry logic."""
     key = api_key or os.environ.get("OPENAI_PROJECT_KEY") or os.environ.get("OPENAI_API_KEY")
     if not key:
         raise RuntimeError("No OpenAI API key found. Set OPENAI_PROJECT_KEY or OPENAI_API_KEY.")
 
+    url = f"https://api.openai.com/v1/{endpoint}"
+    # HTTPS enforcement — reject non-HTTPS URLs
+    if not url.startswith("https://"):
+        raise ValueError(f"ORION security: only HTTPS URLs allowed, got {url}")
+
     data = json.dumps(payload).encode()
-    req = urllib.request.Request(
-        f"https://api.openai.com/v1/{endpoint}",
-        data=data,
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read())
+
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code == 429 or e.code >= 500:
+                # Retry on rate limit or server errors
+                last_error = e
+                wait = min(2 ** attempt, 10)  # Exponential backoff: 1, 2, 4, max 10s
+                logger.warning(f"OpenAI API error {e.code}, retrying in {wait}s (attempt {attempt+1}/{max_retries})")
+                time.sleep(wait)
+                continue
+            raise  # Non-retryable HTTP error
+        except urllib.error.URLError as e:
+            last_error = e
+            wait = min(2 ** attempt, 10)
+            logger.warning(f"OpenAI API network error, retrying in {wait}s (attempt {attempt+1}/{max_retries}): {e}")
+            time.sleep(wait)
+            continue
+
+    raise RuntimeError(f"OpenAI API request failed after {max_retries} retries: {last_error}")
 
 
 # ============================================================================
