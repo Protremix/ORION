@@ -10,7 +10,8 @@
 
 | # | Dependency | Version Constraint | Source | License | Commercial Use | Modification | Redistribution | Attribution | Restrictions | Verification Source |
 |---|------------|-------------------|--------|---------|----------------|-------------|----------------|-------------|-------------|---------------------|
-| 1 | asyncpg | >=0.29.0 | [PyPI](https://pypi.org/project/asyncpg/) | Apache 2.0 (module license) | YES | YES | YES | YES (LICENSE file) | None | https://github.com/MagicStack/asyncpg/blob/master/LICENSE |
+| 1 | asyncpg | >=0.29.0 | [PyPI](https://pypi.org/project/asyncpg/) | Apache 2.0 | YES | YES | YES | YES (LICENSE file) | None | https://github.com/MagicStack/asyncpg/blob/master/LICENSE |
+| 2 | openai | >=1.0 | [PyPI](https://pypi.org/project/openai/) | Apache 2.0 | YES | YES | YES | YES | None | https://github.com/openai/openai-python/blob/main/LICENSE |
 
 ## Development Dependencies (not shipped in production)
 

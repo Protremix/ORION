@@ -9,7 +9,11 @@ License: Apache 2.0
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import sqlite3
+import time
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -202,6 +206,9 @@ class PermissionChecker:
             perms_list = []
 
         cls._registry[agent_id] = perms_list
+        # Auto-persist if storage is configured
+        if cls._storage_path is not None:
+            cls.save_to_storage()
 
     @classmethod
     def get_agent_permissions(cls, agent_id: Optional[str]) -> List[Union[PermissionLevel, str]]:
@@ -288,6 +295,96 @@ class PermissionChecker:
     def clear(cls) -> None:
         """Clear all registered permissions (for testing)."""
         cls._registry.clear()
+
+    # --- Persistence ---
+
+    _storage_path: Optional[str] = None
+
+    @classmethod
+    def set_storage_path(cls, path: str) -> None:
+        """Set the SQLite storage path for permission persistence."""
+        cls._storage_path = path
+        # Auto-load on set
+        cls.load_from_storage()
+
+    @classmethod
+    def save_to_storage(cls) -> bool:
+        """Persist current permission registry to SQLite. Returns True on success."""
+        if cls._storage_path is None:
+            return False
+        try:
+            conn = sqlite3.connect(cls._storage_path)
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS permissions (
+                    agent_id TEXT PRIMARY KEY,
+                    permissions_json TEXT NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+            ''')
+            for agent_id, perms in cls._registry.items():
+                perms_serialized = json.dumps([
+                    p.value if isinstance(p, PermissionLevel) else str(p) for p in perms
+                ])
+                conn.execute(
+                    'INSERT OR REPLACE INTO permissions (agent_id, permissions_json, updated_at) VALUES (?, ?, ?)',
+                    (agent_id, perms_serialized, time.time())
+                )
+            # Also store audit log entry
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS permission_audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_type TEXT NOT NULL,
+                    agent_id TEXT,
+                    details TEXT,
+                    timestamp REAL NOT NULL
+                )
+            ''')
+            conn.execute(
+                'INSERT INTO permission_audit_log (event_type, agent_id, details, timestamp) VALUES (?, ?, ?, ?)',
+                ('SAVE', None, json.dumps({'count': len(cls._registry)}), time.time())
+            )
+            conn.commit()
+            conn.close()
+            logger.info(f"Persisted {len(cls._registry)} agent permissions to {cls._storage_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to persist permissions: {e}")
+            return False
+
+    @classmethod
+    def load_from_storage(cls) -> bool:
+        """Load permission registry from SQLite. Returns True on success."""
+        if cls._storage_path is None:
+            return False
+        if not os.path.exists(cls._storage_path):
+            return False
+        try:
+            conn = sqlite3.connect(cls._storage_path)
+            cursor = conn.execute('SELECT agent_id, permissions_json FROM permissions')
+            loaded = 0
+            for agent_id, perms_json in cursor:
+                perms_list = json.loads(perms_json)
+                # Reconstruct PermissionLevel objects where possible
+                restored = []
+                for p in perms_list:
+                    if p in PermissionLevel.__members__:
+                        restored.append(PermissionLevel[p])
+                    else:
+                        restored.append(p)
+                cls._registry[agent_id] = restored
+                loaded += 1
+            conn.close()
+            logger.info(f"Loaded {loaded} agent permissions from {cls._storage_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to load permissions: {e}")
+            return False
+
+    @classmethod
+    def register_and_persist(cls, agent_id: str, permissions: List) -> bool:
+        """Register agent permissions and persist to storage."""
+        cls.register_agent_permissions(agent_id, permissions)
+        return cls.save_to_storage()
 
 
 # Global singleton instance

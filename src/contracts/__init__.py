@@ -5,6 +5,7 @@ Exposes all 9 normative data contracts, base contract, and common enums.
 
 from src.contracts.contracts import (
     ActionAuthorization,
+    ActionCategory,
     ActionExecutionResult,
     ActionProposal,
     AuditEvent,
@@ -37,6 +38,7 @@ __all__ = [
     "BeliefState",
     "Goal",
     "ActionProposal",
+    "ActionCategory",
     "ActionAuthorization",
     "ActionExecutionResult",
     "SafetyDecision",

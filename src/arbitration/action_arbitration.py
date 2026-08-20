@@ -222,6 +222,15 @@ class ActionArbitration:
             if proposal.risk_tier.value > self._safety_policy.max_allowed_risk_tier.value:
                 return None, f"Action Risk Tier {proposal.risk_tier.value} exceeds policy max {self._safety_policy.max_allowed_risk_tier.value}"
 
+            # 2b. Action Category Enforcement (Financial/Legal/Strategic require Founder approval)
+            action_cat = getattr(proposal, 'action_category', None)
+            if action_cat is not None:
+                cat_val = action_cat.value if hasattr(action_cat, 'value') else str(action_cat)
+                cat_upper = cat_val.upper() if isinstance(cat_val, str) else cat_val
+                if cat_upper in ("FINANCIAL", "LEGAL", "STRATEGIC"):
+                    if not human_approval_signature:
+                        return None, f"DECISION_REQUIRED: {cat_upper} action requires Founder approval (human_approval_signature missing)"
+
             # 3. Safety Assurance Approval Requirement
             if proposal.risk_tier == RiskTier.TIER_2 and self._safety_policy.require_sa_approval_for_tier2:
                 if not sa_approval_signature:

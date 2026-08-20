@@ -222,6 +222,14 @@ class ORIONAPI:
             if not sim.ok:
                 return sim
 
+        # Action category enforcement — financial/legal/strategic require Founder approval
+        action_cat = action.get("action_category", "DIGITAL")
+        if isinstance(action_cat, str) and action_cat.upper() in ("FINANCIAL", "LEGAL", "STRATEGIC"):
+            return ORIONResponse(
+                status=ORIONStatus.UNAUTHORIZED,
+                error=f"DECISION_REQUIRED: {action_cat.upper()} action requires Founder approval",
+            )
+
         # Safety Gateway check — required for any hardware action
         if action.get("device_id"):
             if self._safety:

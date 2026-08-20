@@ -18,6 +18,7 @@ import hmac
 import json
 import logging
 import os
+import secrets
 import time
 import uuid
 from copy import deepcopy
@@ -47,9 +48,6 @@ class SystemSafetyState(str, Enum):
     NORMAL = "NORMAL"
     DEGRADED = "DEGRADED"
     EMERGENCY = "EMERGENCY"
-
-
-DEFAULT_SECRET_KEY = "orion_phase1_safety_key_change_in_production"
 
 
 # Hardcoded Minimal Fallback Safe Policy for Last-Known-Safe Conflict Resolution (Section 8.4)
@@ -135,7 +133,18 @@ class PolicyManager:
         policy_dir: Optional[str] = None
     ):
         """Initialize PolicyManager with signing key and policy directory."""
-        self.secret_key = secret_key or os.environ.get("ORION_POLICY_SECRET_KEY", DEFAULT_SECRET_KEY)
+        is_production = os.environ.get("ORION_ENV") == "production"
+        env_key = os.environ.get("ORION_POLICY_KEY") or os.environ.get("ORION_POLICY_SECRET_KEY")
+
+        if secret_key:
+            self.secret_key = secret_key
+        elif env_key:
+            self.secret_key = env_key
+        elif is_production:
+            raise ValueError("ORION_POLICY_KEY environment variable is required in production environment")
+        else:
+            self.secret_key = secrets.token_hex(32)
+            logger.warning("No policy signing key provided (ORION_POLICY_KEY not set). Generated ephemeral key for development/test mode.")
         self.policy_dir = policy_dir or os.path.join(
             os.path.dirname(__file__), "..", "..", "config", "policies"
         )

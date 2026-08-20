@@ -20,6 +20,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Optional
 
 from src.api import ModelDescriptor, ModelType
@@ -39,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# OpenAI API Helper
+# OpenAI API Helper & Path Validation
 # ============================================================================
 
 def _openai_request(endpoint: str, payload: dict, api_key: Optional[str] = None,
@@ -86,6 +87,41 @@ def _openai_request(endpoint: str, payload: dict, api_key: Optional[str] = None,
             continue
 
     raise RuntimeError(f"OpenAI API request failed after {max_retries} retries: {last_error}")
+
+
+def validate_image_path(path: str) -> str:
+    """
+    Validate an image file path against path traversal and directory boundary restrictions.
+
+    Allowed base directory is controlled by ORION_VISION_DATA_DIR env var (defaults to 'data/vision/').
+    Returns the resolved absolute path as a string if safe, or raises ValueError if unsafe.
+    """
+    if not path or not isinstance(path, str):
+        raise ValueError("Image path must be a non-empty string")
+
+    base_dir_env = os.environ.get("ORION_VISION_DATA_DIR", "data/vision/")
+    try:
+        base_dir = Path(base_dir_env).resolve()
+    except Exception as e:
+        raise ValueError(f"Invalid vision base directory setting: {e}") from e
+
+    try:
+        p = Path(path)
+        if p.is_absolute():
+            resolved = p.resolve()
+        else:
+            resolved_direct = p.resolve()
+            if resolved_direct.is_relative_to(base_dir):
+                resolved = resolved_direct
+            else:
+                resolved = (base_dir / p).resolve()
+    except Exception as e:
+        raise ValueError(f"Invalid or unresolvable image path '{path}': {e}") from e
+
+    if not resolved.is_relative_to(base_dir):
+        raise ValueError(f"Access denied: path '{path}' escapes allowed vision directory '{base_dir}'")
+
+    return str(resolved)
 
 
 # ============================================================================
@@ -194,7 +230,8 @@ class GPT4oVisionAdapter(VisionModelAdapter):
             b64 = base64.b64encode(request.image_data).decode()
             return f"data:image/png;base64,{b64}"
         elif request.image_path:
-            with open(request.image_path, "rb") as f:
+            safe_path = validate_image_path(request.image_path)
+            with open(safe_path, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode()
             return f"data:image/png;base64,{b64}"
         raise ValueError("No image provided in VisionRequest")

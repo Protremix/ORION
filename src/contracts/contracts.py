@@ -69,6 +69,15 @@ class GoalPriority(int, Enum):
     CRITICAL = 4
 
 
+class ActionCategory(str, Enum):
+    """Categories of actions for arbitration and governance enforcement."""
+    DIGITAL = "DIGITAL"
+    FINANCIAL = "FINANCIAL"
+    LEGAL = "LEGAL"
+    PHYSICAL = "PHYSICAL"
+    STRATEGIC = "STRATEGIC"
+
+
 class RiskTier(int, Enum):
     """Action risk tier classification.
 
@@ -426,6 +435,7 @@ class ActionProposal(BaseContract):
     estimated_duration_ms: int = 1000
     expected_outcome: Dict[str, Any] = field(default_factory=dict)
     risk_tier: RiskTier = RiskTier.TIER_1
+    action_category: ActionCategory = ActionCategory.DIGITAL
     risk_assessment: Dict[str, Any] = field(default_factory=lambda: {
         "risk_tier": 1,
         "hazards": ["minor_collision_risk"],
@@ -468,6 +478,11 @@ class ActionProposal(BaseContract):
             self.producer = Plane.COGNITIVE.value
         if not self.consumer:
             self.consumer = Plane.ACTION_ARBITRATION.value
+        if isinstance(self.action_category, str) and not isinstance(self.action_category, ActionCategory):
+            try:
+                self.action_category = ActionCategory(self.action_category.upper())
+            except ValueError:
+                pass
 
     def validate(self) -> bool:
         super().validate()
@@ -485,6 +500,10 @@ class ActionProposal(BaseContract):
             raise ValueError("ActionProposal.risk_assessment must contain 'hazards'")
         if "mitigations" not in self.risk_assessment:
             raise ValueError("ActionProposal.risk_assessment must contain 'mitigations'")
+        if isinstance(self.action_category, str):
+            cat_str = self.action_category.value if isinstance(self.action_category, Enum) else self.action_category
+            if cat_str.upper() not in [e.value for e in ActionCategory]:
+                raise ValueError(f"ActionProposal.action_category ({self.action_category}) is invalid")
         return True
 
 

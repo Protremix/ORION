@@ -39,19 +39,19 @@ This document records all measured evidence for ORION Phase 001 (Repository Audi
 
 **EVIDENCE:**
 - Command: `python3 -m pytest --collect-only -q`
-- Result: `582 tests collected in 0.25s`
+- Result: `625 tests collected in 0.37s`
 - Collection errors: 0
 - Date: 2026-08-20
 
 ## 3. Full Test Suite
 
-**CLAIM:** 573 tests pass, 9 skipped, 0 failed.
+**CLAIM:** 616 tests pass, 9 skipped, 0 failed.
 
 **CLASSIFICATION:** VERIFIED
 
 **EVIDENCE:**
 - Command: `python3 -m pytest -q -m "not live" --tb=line`
-- Result: `573 passed, 9 skipped in 175.36s`
+- Result: `616 passed, 9 skipped in 164.11s`
 - Skipped tests: 9 (all require live PostgreSQL — `tests/unit/test_live_postgres.py`)
 - Classification of skipped: ENVIRONMENT (live PostgreSQL not available in sandbox)
 - Date: 2026-08-20
@@ -103,7 +103,8 @@ This document records all measured evidence for ORION Phase 001 (Repository Audi
 **EVIDENCE:**
 - Document: `docs/audits/SECURITY_AUDIT.md` (20,299 bytes)
 - Findings: 1 CRITICAL, 5 HIGH, 5 MEDIUM, 5 LOW, 5 INFO
-- CRITICAL: ORIONAPI methods bypass auth — **FIXED** (added `_check_auth()` to all public methods, 8 enforcement tests added)
+- CRITICAL: ORIONAPI methods bypass auth — **FIXED**
+- 6 HIGH security issues: all addressed in TASK 001B (permissions persistence, financial/legal enforcement, fallback key, Docker root, vision path traversal) (added `_check_auth()` to all public methods, 8 enforcement tests added)
 - Date: 2026-08-20
 
 ## 8. Safety Audit

@@ -3,7 +3,7 @@ Safety Enforcement Plane and Physical Watchdog package for ORION.
 """
 
 try:
-    from state_machine import (
+    from src.safety.state_machine import (
         AuthorityState,
         AuthorityTransitionStateMachine,
         AuthorizerCredential,

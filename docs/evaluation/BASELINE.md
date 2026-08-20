@@ -16,7 +16,7 @@
 | Python lines (tests) | 9,794 | `wc -l` on tests/ |
 | Python lines (total) | ~35,000 | Sum of all .py files |
 | Test files | 38 | Count of test_*.py files |
-| Test functions | 582 | `grep -r "def test_" tests/ \| wc -l` |
+| Test functions | 625 | `grep -r "def test_" tests/ \| wc -l` |
 | Documentation files | ~55 | Count of .md files |
 | ADRs | 12 | Count in docs/adr/ |
 | Domain modules | 4 | drone, home, industrial, vehicle |
@@ -26,12 +26,12 @@
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| Total collected | 582 | `pytest --collect-only` |
-| Passed | 573 | `pytest -q -m "not live"` |
+| Total collected | 625 | `pytest --collect-only` |
+| Passed | 616 | `pytest -q -m "not live"` |
 | Failed | 0 | — |
 | Skipped | 9 | Live PostgreSQL tests (`test_live_postgres.py`) |
 | Errors | 0 | — |
-| Execution time | 175.36s | (~2 min 55 sec) |
+| Execution time | 164.11s | (~2 min 44 sec) |
 | Collection time | 0.25s | — |
 
 ### Test Categories
@@ -57,7 +57,7 @@
 
 | Metric | Value |
 |--------|-------|
-| Runtime dependencies | 1 (asyncpg) |
+| Runtime dependencies | 2 (asyncpg, openai) |
 | Dev dependencies | 4 (pytest, pytest-asyncio, ruff, mypy) |
 | External services | 1 (OpenAI GPT-4o API) |
 | Docker images | 3 (python, postgres, pgvector) |

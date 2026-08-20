@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from state_machine import (
+from src.safety.state_machine import (
     AuthorityState,
     AuthorityTransitionStateMachine,
     AuthorizerCredential,

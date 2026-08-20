@@ -10,24 +10,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Create non-root user for security
+RUN groupadd -r orion -g 1000 && \
+    useradd -r -g orion -u 1000 -s /bin/bash -d /app orion
+
 # Set work directory
 WORKDIR /app
 
 # Copy project config first for better caching
-COPY pyproject.toml ./
+COPY --chown=orion:orion pyproject.toml ./
 
 # Install dependencies
 RUN pip install --no-cache-dir -e ".[dev]"
 
-# Copy source code
-COPY src/ ./src/
-COPY simulation/ ./simulation/
-COPY tests/ ./tests/
-COPY docs/ ./docs/
+# Copy source code with proper ownership
+COPY --chown=orion:orion src/ ./src/
+COPY --chown=orion:orion simulation/ ./simulation/
+COPY --chown=orion:orion tests/ ./tests/
+COPY --chown=orion:orion docs/ ./docs/
+COPY --chown=orion:orion conftest.py ./
 
 # Set Python path
 ENV PYTHONPATH=/app
 ENV ORION_ENV=docker
 
-# Default command — run tests
-CMD ["pytest", "--tb=short", "-q", "-m", "not live"]
+# Switch to non-root user (least privilege)
+USER orion
+
+# Default command
+CMD ["python", "-m", "pytest", "-q", "-m", "not live", "--tb=short"]
