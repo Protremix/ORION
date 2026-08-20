@@ -1,0 +1,64 @@
+{
+  "policy_id": "policy-default-safety-v1",
+  "version": "1.0.0",
+  "description": "Default Physical Safety Limits for ORION Phase 1 (Cloud Simulation)",
+  "status": "SIGNED",
+  "signer": "SafetyAssurance",
+  "signature": "8f9a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a",
+  "created_at": 1787160000,
+  "is_last_known_safe": true,
+  "safety_limits": {
+    "linear_velocity_m_s": {
+      "max": 1.5,
+      "warning": 1.2,
+      "default": 0.5
+    },
+    "angular_velocity_rad_s": {
+      "max": 2.0,
+      "warning": 1.5,
+      "default": 0.5
+    },
+    "linear_acceleration_m_s2": {
+      "max": 2.0,
+      "warning": 1.5,
+      "default": 1.0
+    },
+    "angular_acceleration_rad_s2": {
+      "max": 3.0,
+      "warning": 2.0,
+      "default": 1.0
+    },
+    "joint_torque_Nm": {
+      "max": 30.0,
+      "warning": 25.0
+    },
+    "end_effector_force_N": {
+      "max": 50.0,
+      "warning": 40.0,
+      "default": 10.0
+    },
+    "temperature_celsius": {
+      "max": 75.0,
+      "warning": 65.0,
+      "critical": 85.0
+    },
+    "cbf_safety_margin_m": {
+      "min": 0.2,
+      "warning": 0.3,
+      "critical": 0.1
+    },
+    "spatial_bounds": {
+      "x_min": -10.0,
+      "x_max": 10.0,
+      "y_min": -10.0,
+      "y_max": 10.0,
+      "z_min": 0.0,
+      "z_max": 3.0
+    },
+    "execution_timeout_ms": {
+      "max": 30000,
+      "default": 5000
+    },
+    "clock_skew_tolerance_ms": 5.0
+  }
+}

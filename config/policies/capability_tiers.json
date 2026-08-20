@@ -1,0 +1,138 @@
+{
+  "version": "1.0.0",
+  "description": "ORION Capability Tiers and Risk Tier Definitions (v0.5 baseline)",
+  "capability_tiers": {
+    "tier_0_minimal": {
+      "level": 0,
+      "name": "Minimal / Read-Only",
+      "description": "Read-only sensor observation, belief state estimation, diagnostics, and audit logging. No physical motion permitted.",
+      "allowed_actions": [
+        "observe",
+        "estimate_state",
+        "diagnose",
+        "ping",
+        "audit_log"
+      ],
+      "max_velocity_m_s": 0.0,
+      "max_force_N": 0.0
+    },
+    "tier_1_low": {
+      "level": 1,
+      "name": "Low Risk Motion",
+      "description": "Low-speed navigation (<0.5 m/s), status light indicators, audio signals, and soft stopping.",
+      "allowed_actions": [
+        "observe",
+        "estimate_state",
+        "diagnose",
+        "ping",
+        "audit_log",
+        "low_speed_navigate",
+        "set_indicator",
+        "play_audio",
+        "soft_stop"
+      ],
+      "max_velocity_m_s": 0.5,
+      "max_force_N": 5.0
+    },
+    "tier_2_moderate": {
+      "level": 2,
+      "name": "Moderate Actuation",
+      "description": "Standard navigation speed (<1.0 m/s), light pick-and-place manipulation, gentle interaction, and docking.",
+      "allowed_actions": [
+        "observe",
+        "estimate_state",
+        "diagnose",
+        "ping",
+        "audit_log",
+        "low_speed_navigate",
+        "set_indicator",
+        "play_audio",
+        "soft_stop",
+        "standard_navigate",
+        "pick_and_place",
+        "gentle_manipulation",
+        "dock"
+      ],
+      "max_velocity_m_s": 1.0,
+      "max_force_N": 20.0
+    },
+    "tier_3_high": {
+      "level": 3,
+      "name": "High Actuation",
+      "description": "Full simulation speed navigation (<1.5 m/s), heavy manipulation, autonomous tool operations, and payload adjustment.",
+      "allowed_actions": [
+        "observe",
+        "estimate_state",
+        "diagnose",
+        "ping",
+        "audit_log",
+        "low_speed_navigate",
+        "set_indicator",
+        "play_audio",
+        "soft_stop",
+        "standard_navigate",
+        "pick_and_place",
+        "gentle_manipulation",
+        "dock",
+        "high_speed_navigate",
+        "heavy_manipulation",
+        "tool_use",
+        "reconfigure_payload"
+      ],
+      "max_velocity_m_s": 1.5,
+      "max_force_N": 50.0
+    },
+    "tier_4_critical": {
+      "level": 4,
+      "name": "Critical / Safety Tier",
+      "description": "Emergency stopping, hardware overrides, power isolation, and safety recovery operations.",
+      "allowed_actions": [
+        "emergency_stop",
+        "hardware_override",
+        "isolate_power",
+        "system_reset",
+        "mandate_safe_state",
+        "revoke_lease"
+      ],
+      "max_velocity_m_s": 0.0,
+      "max_force_N": 0.0
+    }
+  },
+  "risk_tiers": {
+    "minimal": {
+      "level": 1,
+      "description": "Zero risk of damage or hazard; read-only operations.",
+      "approval_required": "none",
+      "permitted_channels": ["realtime", "async"],
+      "requires_safety_assurance": false
+    },
+    "low": {
+      "level": 2,
+      "description": "Low velocity motion in clear workspace.",
+      "approval_required": "auto",
+      "permitted_channels": ["realtime", "async"],
+      "requires_safety_assurance": false
+    },
+    "moderate": {
+      "level": 3,
+      "description": "Standard manipulation near obstacles.",
+      "approval_required": "action_arbitration",
+      "permitted_channels": ["realtime", "async"],
+      "requires_safety_assurance": false
+    },
+    "high": {
+      "level": 4,
+      "description": "High speed or near force thresholds; potential contact.",
+      "approval_required": "safety_assurance",
+      "permitted_channels": ["async", "human_approval"],
+      "requires_safety_assurance": true
+    },
+    "critical": {
+      "level": 5,
+      "description": "Emergency overrides or high force commands.",
+      "approval_required": "founder_or_safety_assurance",
+      "permitted_channels": ["emergency", "human_approval"],
+      "requires_safety_assurance": true
+    }
+  }
+}
