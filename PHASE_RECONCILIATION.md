@@ -1,6 +1,15 @@
 # ORION Phase Reconciliation Document
 ## Implementation Phases vs Master Spec §26 (11 Capability Phases)
 
+> **AUDIT CORRECTION (2026-08-20):** Previous claim of "8/11 phases fully covered" has been
+> corrected based on independent audit (ORION_AUDIT_REPORT_v0.1.md). Actual status:
+> 7/11 MATCH (verified by tests), 1/11 UNTESTED (HIL — hardware blocked), 3/11 MISSING
+> (Discovery, Causal/Counterfactual, Continuous Learning). Discovery and Causal Reasoning
+> have been DE-SCOPED by Founder decision — see ROADMAP_DESCOPED_FEATURES.md for future plan.
+> Previous "Luna Approved" statements classified as AGENT_REPORTED.
+
+
+
 **Date:** 2026-08-20  
 **Author:** ORION Supervisor  
 **Status:** Living Document

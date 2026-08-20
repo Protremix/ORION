@@ -24,6 +24,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Callable, Union, Protocol
+from src.api.auth import AuthManager, AuthConfig, get_auth_manager
 
 logger = logging.getLogger(__name__)
 
@@ -75,11 +76,21 @@ class ORIONAPI:
         hal: Optional[Any] = None,
         memory: Optional[Any] = None,
         supervisor: Optional[Any] = None,
+        auth_manager: Optional[AuthManager] = None,
     ) -> None:
         self._safety = safety_gateway
         self._hal = hal
         self._memory = memory
         self._supervisor = supervisor
+        self._auth = auth_manager or get_auth_manager()
+
+    def _check_auth(self, token: Optional[str] = None) -> ORIONResponse:
+        """Check authentication and rate limit. Returns error response if failed."""
+        if not self._auth.authenticate(token):
+            return ORIONResponse(status=ORIONStatus.UNAUTHORIZED, error="Invalid or missing API key")
+        if not self._auth.check_rate_limit(token):
+            return ORIONResponse(status=ORIONStatus.RATE_LIMITED, error="Rate limit exceeded")
+        return ORIONResponse(status=ORIONStatus.OK)
 
     # --- Observation ---
     def observe(self, source: str, query: Dict[str, Any]) -> ORIONResponse:
