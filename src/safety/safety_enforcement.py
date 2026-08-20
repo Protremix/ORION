@@ -13,23 +13,22 @@ Guarantees:
 5. Hardware Emergency Path: Unconditional E-Stop, watchdog fail-safe, and multi-factor re-arming.
 """
 
+import hashlib
+import logging
 import os
 import sys
 import time
-import math
 import uuid
-import hashlib
-import logging
-from enum import Enum
-from typing import Dict, List, Optional, Tuple, Any, Callable
 from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 from state_machine import (
     AuthorityState,
     AuthorityTransitionStateMachine,
     AuthorizerCredential,
     AuthorizerRole,
-    TransitionEvidence
+    TransitionEvidence,
 )
 
 logger = logging.getLogger(__name__)
@@ -114,7 +113,7 @@ class SafetyDecision:
 class ControlBarrierFunction:
     """
     Base class for Control Barrier Functions (CBFs).
-    
+
     A CBF defines a safe set C = {x | h(x) >= 0}.
     To guarantee safety under control input u, we enforce:
         dh/dt + alpha(h(x)) >= 0
@@ -252,7 +251,7 @@ class SpatialKeepOutCBF(ControlBarrierFunction):
         safe = dict(nominal_control)
         pos = state.get("position", (5.0, 5.0, 5.0))
         vel = nominal_control.get("velocity", (0.0, 0.0, 0.0))
-        h_val = self.h(state)
+        self.h(state)
         # If moving towards hazard center and too close, zero out radial velocity component towards hazard
         diff = [p - c for p, c in zip(pos, self.center)]
         dot = sum(d * v for d, v in zip(diff, vel))
@@ -592,7 +591,7 @@ class CommonCauseFailureHandler:
 class SafetyEnforcement:
     """
     Safety Enforcement Plane for ORION v0.5.
-    
+
     Provides deterministic Control Barrier Function (CBF) filtering, domain fallbacks,
     hardware E-stop integration, and independence verification.
     """
@@ -914,7 +913,7 @@ class SafetyEnforcement:
             )
 
             try:
-                rec = self.state_machine.transition_to(
+                self.state_machine.transition_to(
                     to_state=AuthorityState.RECOVERY,
                     initiating_condition="System re-armed by Founder after E-Stop clear",
                     authorizer=founder_credential,
@@ -941,25 +940,25 @@ class SafetyEnforcement:
 
 class BatteryMonitor:
     """Battery monitor for safety verification — tracks capacity and triggers thresholds."""
-    
+
     def __init__(self, capacity_mah: float = 5000.0, low_threshold: float = 20.0, critical_threshold: float = 10.0):
         self.capacity_mah = capacity_mah
         self.low_threshold = low_threshold
         self.critical_threshold = critical_threshold
         self._current_pct = 100.0  # Start at 100%
-    
+
     def drain(self, amount: float) -> None:
         """Drain battery by amount (percentage points)."""
         self._current_pct = max(0.0, self._current_pct - amount)
-    
+
     @property
     def current_pct(self) -> float:
         return self._current_pct
-    
+
     def should_return_to_base(self) -> bool:
         """Check if battery is low enough to trigger return-to-base."""
         return self._current_pct <= self.low_threshold
-    
+
     def should_emergency_land(self) -> bool:
         """Check if battery is critically low — must land immediately."""
         return self._current_pct <= self.critical_threshold

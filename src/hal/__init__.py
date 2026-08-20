@@ -21,11 +21,11 @@ License: Apache 2.0
 from __future__ import annotations
 
 import abc
-import time
 import logging
+import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Callable, Protocol
+from typing import Any, Callable, Dict, List, Optional, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -142,10 +142,10 @@ class SensorReading:
 class DeviceAdapter(Protocol):
     """
     Protocol for device adapters — one per manufacturer or device family.
-    
+
     Adapters translate ORION commands into device-specific protocols
     and translate device responses back to ORION format.
-    
+
     The core intelligence NEVER talks to devices directly.
     Everything goes through the HAL → Adapter → Device chain.
     """
@@ -196,7 +196,7 @@ class DeviceAdapter(Protocol):
 class BaseDeviceAdapter(abc.ABC):
     """
     Abstract base class for device adapters.
-    
+
     Subclasses implement device-specific communication.
     The HAL uses these adapters to talk to real or simulated devices.
     """
@@ -279,11 +279,11 @@ class BaseDeviceAdapter(abc.ABC):
 class HardwareAbstractionLayer:
     """
     ORION Hardware Abstraction Layer — Master Spec §11.
-    
+
     The HAL is the single point of contact between ORION intelligence
     and physical devices. All commands pass through the Safety Gateway
     before reaching the HAL.
-    
+
     The HAL:
     - Manages device registration and discovery
     - Routes commands to the correct adapter
@@ -351,7 +351,7 @@ class HardwareAbstractionLayer:
     def send_command(self, command: DeviceCommand) -> DeviceResponse:
         """
         Send a command to a device through the Safety Gateway.
-        
+
         The Safety Gateway MUST approve the command before it reaches the device.
         If no Safety Gateway is configured, the command is rejected.
         """

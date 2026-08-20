@@ -9,15 +9,14 @@ License: Apache 2.0
 """
 
 import asyncio
-from contextlib import contextmanager
 import json
 import logging
-import os
-from pathlib import Path
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
 import uuid
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 import asyncpg
 

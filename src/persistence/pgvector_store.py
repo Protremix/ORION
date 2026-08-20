@@ -23,13 +23,12 @@ or PostgreSQL is unavailable.
 License: Apache 2.0
 """
 
-import asyncio
 import json
 import logging
 import math
-from pathlib import Path
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from src.persistence.postgres_storage import PostgresStorageManager
@@ -49,22 +48,22 @@ CREATE TABLE IF NOT EXISTS memory_embeddings (
 """.strip()
 
 CREATE_MEMORY_EMBEDDINGS_INDEX_SQL = """
-CREATE INDEX IF NOT EXISTS idx_memory_embeddings_vector 
+CREATE INDEX IF NOT EXISTS idx_memory_embeddings_vector
 ON memory_embeddings USING hnsw (embedding vector_cosine_ops);
 """.strip()
 
 STORE_EMBEDDING_SQL = """
 INSERT INTO memory_embeddings (memory_id, text, embedding)
 VALUES ($1, $2, $3::vector)
-ON CONFLICT (memory_id) 
+ON CONFLICT (memory_id)
 DO UPDATE SET text = EXCLUDED.text, embedding = EXCLUDED.embedding, created_at = CURRENT_TIMESTAMP;
 """.strip()
 
 SEMANTIC_SEARCH_SQL = """
-SELECT 
-    memory_id, 
-    text, 
-    embedding, 
+SELECT
+    memory_id,
+    text,
+    embedding,
     1 - (embedding <=> $1::vector) AS similarity
 FROM memory_embeddings
 WHERE 1 - (embedding <=> $1::vector) >= $2
@@ -75,7 +74,7 @@ LIMIT $3;
 BATCH_STORE_EMBEDDINGS_SQL = """
 INSERT INTO memory_embeddings (memory_id, text, embedding)
 VALUES ($1, $2, $3::vector)
-ON CONFLICT (memory_id) 
+ON CONFLICT (memory_id)
 DO UPDATE SET text = EXCLUDED.text, embedding = EXCLUDED.embedding, created_at = CURRENT_TIMESTAMP;
 """.strip()
 

@@ -149,3 +149,58 @@ class TestAPIWithAuth:
         api = ORIONAPI(auth_manager=auth)
         check = api._check_auth("secret")
         assert check.ok is True
+
+
+class TestORIONAPIAuthEnforcement:
+    """Test that ORIONAPI public methods enforce authentication when enabled."""
+
+    def setup_method(self):
+        """Set up auth-enabled API."""
+        from src.api.auth import AuthConfig, AuthManager
+        from src.api import ORIONAPI
+        self.auth = AuthManager(AuthConfig(enabled=True, api_key="test-secret-key"))
+        self.api = ORIONAPI(auth_manager=self.auth)
+
+    def teardown_method(self):
+        os.environ.pop("ORION_API_KEY", None)
+
+    def test_observe_requires_auth(self):
+        """Observe without token returns UNAUTHORIZED when auth enabled."""
+        resp = self.api.observe("sim", {"type": "grid"})
+        assert not resp.ok
+        assert "Invalid or missing API key" in resp.error
+
+    def test_get_world_state_requires_auth(self):
+        """Get world state without token returns UNAUTHORIZED when auth enabled."""
+        resp = self.api.get_world_state()
+        assert not resp.ok
+
+    def test_recall_requires_auth(self):
+        """Recall without token returns UNAUTHORIZED when auth enabled."""
+        resp = self.api.recall("test query")
+        assert not resp.ok
+
+    def test_remember_requires_auth(self):
+        """Remember without token returns UNAUTHORIZED when auth enabled."""
+        resp = self.api.remember({"event": "test"})
+        assert not resp.ok
+
+    def test_plan_requires_auth(self):
+        """Plan without token returns UNAUTHORIZED when auth enabled."""
+        resp = self.api.plan("move robot")
+        assert not resp.ok
+
+    def test_simulate_requires_auth(self):
+        """Simulate without token returns UNAUTHORIZED when auth enabled."""
+        resp = self.api.simulate({"command": "move"})
+        assert not resp.ok
+
+    def test_execute_requires_auth(self):
+        """Execute without token returns UNAUTHORIZED when auth enabled."""
+        resp = self.api.execute({"command": "move"}, simulate_first=False)
+        assert not resp.ok
+
+    def test_observe_with_valid_token(self):
+        """Observe with valid token succeeds when auth enabled."""
+        resp = self.api.observe("sim", {"type": "grid"}, token="test-secret-key")
+        assert resp.ok

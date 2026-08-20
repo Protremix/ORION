@@ -19,7 +19,7 @@ Safety Criticality: SC-3 (lowest, but human occupancy)
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from src.contracts.contracts import (
     ActionExecutionResult,
@@ -274,7 +274,7 @@ class HomeSimulation:
         # Phase 4: Act (if no emergencies, update energy)
         if self.system_status == "NOMINAL":
             total_power = sum(h.fan_speed * 0.01 for h in [self.hvac_ground, self.hvac_first])
-            total_power += sum(l.brightness * 0.005 for l in [self.light_living, self.light_kitchen, self.light_bedroom])
+            total_power += sum(lt.brightness * 0.005 for lt in [self.light_living, self.light_kitchen, self.light_bedroom])
             self.energy.update_usage(total_power)
 
         # Phase 5: Verify

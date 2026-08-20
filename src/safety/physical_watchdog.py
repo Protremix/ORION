@@ -11,10 +11,10 @@ Watchdog Hierarchy:
 - Level 4: Cognitive Plane -> Reasoning -> Planning
 """
 
-import time
-import threading
 import logging
-from typing import Dict, List, Optional, Any, Callable
+import threading
+import time
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 

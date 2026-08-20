@@ -219,7 +219,7 @@ class PermissionChecker:
     ) -> bool:
         """
         Check if an agent has permission to perform an action on a resource.
-        
+
         Returns True if authorized, False otherwise (deny by default).
         """
         if not agent_id or not isinstance(agent_id, str):
@@ -269,7 +269,7 @@ class PermissionChecker:
     def check_api_access(cls, agent_id: Optional[str], endpoint: Optional[str]) -> bool:
         """
         Check if an agent has permission to access an API endpoint.
-        
+
         Returns True if authorized, False otherwise (deny by default).
         """
         if not agent_id or not isinstance(agent_id, str):

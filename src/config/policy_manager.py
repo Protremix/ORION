@@ -13,9 +13,6 @@ Key Capabilities:
 - Last-known-safe conflict resolution with fallback safe state and EMERGENCY state.
 """
 
-from copy import deepcopy
-from dataclasses import dataclass, field, asdict
-from enum import Enum
 import hashlib
 import hmac
 import json
@@ -23,6 +20,9 @@ import logging
 import os
 import time
 import uuid
+from copy import deepcopy
+from dataclasses import asdict, dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -139,7 +139,7 @@ class PolicyManager:
         self.policy_dir = policy_dir or os.path.join(
             os.path.dirname(__file__), "..", "..", "config", "policies"
         )
-        
+
         self._policy_registry: Dict[str, Policy] = {}
         self._active_policy: Optional[Policy] = None
         self._last_known_safe_policy: Optional[Policy] = None
@@ -179,7 +179,7 @@ class PolicyManager:
         """Cryptographically sign a safety policy (Section 8.2)."""
         key = secret_key or self.secret_key
         policy_hash = self.compute_policy_hash(policy)
-        
+
         mac = hmac.new(
             key.encode("utf-8"),
             policy_hash.encode("utf-8"),
@@ -188,7 +188,7 @@ class PolicyManager:
         policy.signer = signer_id
         policy.signature = mac.hexdigest()
         policy.status = PolicyStatus.SIGNED.value
-        
+
         self._policy_registry[policy.version] = policy
         logger.info("Policy %s (v%s) signed by %s", policy.policy_id, policy.version, signer_id)
         return policy
@@ -201,7 +201,7 @@ class PolicyManager:
         """Verify HMAC-SHA256 signature of a policy."""
         if not policy.signature or not policy.signer:
             return False
-        
+
         key = secret_key or self.secret_key
         policy_hash = self.compute_policy_hash(policy)
         expected_mac = hmac.new(
@@ -209,7 +209,7 @@ class PolicyManager:
             policy_hash.encode("utf-8"),
             hashlib.sha256
         ).hexdigest()
-        
+
         return hmac.compare_digest(policy.signature, expected_mac)
 
     # -------------------------------------------------------------------------
@@ -222,7 +222,7 @@ class PolicyManager:
         secret_key: Optional[str] = None
     ) -> Policy:
         """Activate a signed policy with atomic swap and immutability (Section 8.5).
-        
+
         Rules:
         1. No unsigned policy.
         2. Version monotonicity (new_version >= active_version unless rollback).
@@ -295,7 +295,7 @@ class PolicyManager:
         reason: str = "Defective policy rollback initiated"
     ) -> Tuple[Policy, str]:
         """Rollback active policy to last-known-safe or target signed policy.
-        
+
         Transitions system to DEGRADED state (or EMERGENCY if conflict resolution fails).
         Returns (activated_policy, system_state).
         """
@@ -347,7 +347,7 @@ class PolicyManager:
         self._system_state = SystemSafetyState.EMERGENCY.value
         if self._active_policy:
             self._active_policy.status = PolicyStatus.EMERGENCY.value
-        
+
         self._policy_history.append({
             "action": "EMERGENCY_TRIGGER",
             "reason": reason,
@@ -368,7 +368,7 @@ class PolicyManager:
         parameters: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Evaluate candidate action parameters against active policy rules.
-        
+
         Returns:
             Dict containing 'allowed' (bool), 'reason' (str), and applicable 'constraints'.
         """
@@ -495,7 +495,7 @@ class PolicyManager:
         """Load policy object from JSON file."""
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
-        
+
         policy = Policy.from_dict(data)
         self._policy_registry[policy.version] = policy
         return policy

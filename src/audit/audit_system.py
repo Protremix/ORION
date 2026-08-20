@@ -22,14 +22,14 @@ Key Architecture Requirements Implemented:
 
 from __future__ import annotations
 
-import json
 import hashlib
 import hmac
+import json
+import logging
+import os
 import time
 import uuid
-import os
-import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import (
@@ -39,7 +39,6 @@ from typing import (
     Generator,
     List,
     Optional,
-    Sequence,
     Tuple,
     TypeVar,
     Union,

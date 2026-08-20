@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from src.contracts.contracts import (
     ActionExecutionResult,
@@ -225,7 +225,7 @@ class DroneSimulation:
         # Fly to waypoint
         self.set_waypoints([[20.0, 20.0, 15.0]])
         for _ in range(200):
-            step_result = self.step(0.1)
+            self.step(0.1)
             if self.flight_ctrl.has_reached_target(self.drone.position):
                 break
         results["waypoint_reached"] = self.flight_ctrl.has_reached_target(self.drone.position)
@@ -233,7 +233,7 @@ class DroneSimulation:
         # Return to base
         self.return_to_base()
         for _ in range(200):
-            step_result = self.step(0.1)
+            self.step(0.1)
             if self.drone.state == "LANDING":
                 break
         results["returned_home"] = self.drone.state == "LANDING"

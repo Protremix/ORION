@@ -18,14 +18,21 @@ License: Apache 2.0
 from __future__ import annotations
 
 import abc
+import logging
 import time
 import uuid
-import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Callable, Union, Protocol
-from src.api.auth import AuthManager, AuthConfig, get_auth_manager
-from src.api.permissions import PermissionLevel, Permission, PermissionChecker, get_permission_checker
+from typing import Any, Dict, List, Optional
+
+from src.api.auth import AuthConfig, AuthManager, get_auth_manager
+from src.api.permissions import Permission, PermissionChecker, PermissionLevel, get_permission_checker
+
+__all__ = [
+    'AuthConfig', 'AuthManager', 'get_auth_manager',
+    'Permission', 'PermissionChecker', 'PermissionLevel', 'get_permission_checker',
+    'validate_input', 'sanitize_string', 'validate_api_payload',
+]
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +73,7 @@ class ORIONResponse:
 class ORIONAPI:
     """
     ORION API — top-level programmatic interface.
-    
+
     This is the main entry point for external systems to interact with ORION.
     All operations go through the Safety Gateway where applicable.
     """
@@ -107,14 +114,20 @@ class ORIONAPI:
         return ORIONResponse(status=ORIONStatus.OK)
 
     # --- Observation ---
-    def observe(self, source: str, query: Dict[str, Any]) -> ORIONResponse:
+    def observe(self, source: str, query: Dict[str, Any], token: Optional[str] = None) -> ORIONResponse:
         """Observe a digital or physical environment."""
+        auth = self._check_auth(token, action="observe")
+        if not auth.ok:
+            return auth
         # TODO: Connect to perception plane
         return ORIONResponse(status=ORIONStatus.OK, data={"source": source, "query": query})
 
     # --- World State ---
-    def get_world_state(self, domain: Optional[str] = None) -> ORIONResponse:
+    def get_world_state(self, domain: Optional[str] = None, token: Optional[str] = None) -> ORIONResponse:
         """Get current world state."""
+        auth = self._check_auth(token, action="get_world_state")
+        if not auth.ok:
+            return auth
         if self._supervisor:
             try:
                 state = self._supervisor.get_world_state(domain)
@@ -129,8 +142,12 @@ class ORIONAPI:
         query: str,
         memory_type: Optional[str] = None,
         limit: int = 10,
+        token: Optional[str] = None,
     ) -> ORIONResponse:
         """Recall memories matching a query."""
+        auth = self._check_auth(token, action="recall")
+        if not auth.ok:
+            return auth
         if self._memory:
             try:
                 results = self._memory.search(query, memory_type=memory_type, limit=limit)
@@ -144,8 +161,12 @@ class ORIONAPI:
         content: Any,
         memory_type: str = "episodic",
         metadata: Optional[Dict] = None,
+        token: Optional[str] = None,
     ) -> ORIONResponse:
         """Store a new memory."""
+        auth = self._check_auth(token, action="remember")
+        if not auth.ok:
+            return auth
         if self._memory:
             try:
                 entry = self._memory.store(content, memory_type=memory_type, metadata=metadata)
@@ -155,8 +176,11 @@ class ORIONAPI:
         return ORIONResponse(status=ORIONStatus.OK, data={"stored": False})
 
     # --- Planning ---
-    def plan(self, goal: str, constraints: Optional[Dict] = None) -> ORIONResponse:
+    def plan(self, goal: str, constraints: Optional[Dict] = None, token: Optional[str] = None) -> ORIONResponse:
         """Generate a plan for a goal."""
+        auth = self._check_auth(token, action="plan")
+        if not auth.ok:
+            return auth
         # TODO: Connect to planning plane
         return ORIONResponse(
             status=ORIONStatus.OK,
@@ -168,8 +192,12 @@ class ORIONAPI:
         self,
         action: Dict[str, Any],
         domain: str = "industrial",
+        token: Optional[str] = None,
     ) -> ORIONResponse:
         """Simulate an action before executing it."""
+        auth = self._check_auth(token, action="simulate")
+        if not auth.ok:
+            return auth
         # TODO: Connect to simulation plane
         return ORIONResponse(
             status=ORIONStatus.OK,
@@ -182,8 +210,13 @@ class ORIONAPI:
         action: Dict[str, Any],
         domain: str = "industrial",
         simulate_first: bool = True,
+        token: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> ORIONResponse:
         """Execute an action (optionally simulate first)."""
+        auth = self._check_auth(token, agent_id=agent_id, action="execute")
+        if not auth.ok:
+            return auth
         if simulate_first:
             sim = self.simulate(action, domain)
             if not sim.ok:
@@ -228,8 +261,11 @@ class ORIONAPI:
         return ORIONResponse(status=ORIONStatus.OK, data={"executed": True})
 
     # --- Emergency ---
-    def emergency_stop(self, domain: Optional[str] = None) -> ORIONResponse:
+    def emergency_stop(self, domain: Optional[str] = None, token: Optional[str] = None) -> ORIONResponse:
         """Trigger an emergency stop."""
+        auth = self._check_auth(token, action="emergency_stop")
+        if not auth.ok:
+            return auth
         if self._hal:
             if domain:
                 # Stop specific domain devices
@@ -312,7 +348,7 @@ class AgentResult:
 class AgentProtocol(abc.ABC):
     """
     Protocol for specialized agents — Master Spec §15.
-    
+
     Each agent must have explicit capabilities, permissions, tools, logging, and evaluation.
     """
 

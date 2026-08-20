@@ -7,8 +7,8 @@ License: Apache 2.0
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
+from typing import Any, List
 
 
 @dataclass

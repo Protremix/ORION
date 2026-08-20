@@ -16,9 +16,6 @@ Key Components:
 7. MemoryStore: SQLite storage for cognitive memory and separate tamper-evident audit logs
 """
 
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
-from enum import Enum
 import hashlib
 import json
 import logging
@@ -26,8 +23,11 @@ import math
 import os
 import sqlite3
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 # Configure logger
 logger = logging.getLogger("orion.memory_system")
@@ -954,7 +954,7 @@ class MemoryStore:
         else:
             val_result = ValidationResult(is_valid=True)
 
-        entry_dict = entry.to_dict()
+        entry.to_dict()
 
         with self.conn:
             self.conn.execute(

@@ -12,22 +12,21 @@ Key Architecture Principles:
 4. Safety Assurance Authority: BLOCKING authority (can veto, revoke, or mandate).
 """
 
+import hashlib
+import hmac
+import logging
 import os
+import threading
 import time
 import uuid
-import hmac
-import hashlib
-import logging
-import threading
-from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple, Any
 from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, Optional, Set, Tuple
 
 from src.safety.state_machine import (
-    AuthorityState,
     AuthorityTransitionStateMachine,
     AuthorizerCredential,
-    AuthorizerRole
+    AuthorizerRole,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,7 +76,7 @@ from src.contracts.contracts import ActionProposal
 class ActionAuthorizationLease:
     """
     ActionAuthorization Contract (Lease) Schema B.5.
-    
+
     Represents time-bounded, count-limited, constraint-bound permission to execute an action.
     """
     contract_version: str = "1.0.0"
@@ -153,7 +152,7 @@ class SafetyPolicy:
 class ActionArbitration:
     """
     Action Arbitration & Policy Gate implementation.
-    
+
     Serves as the policy gate between Cognitive Plane and Control Plane.
     Enforces time-bounded lease authorization, atomic execution admission, replay protection,
     and blocking Safety Assurance authority.
@@ -276,7 +275,7 @@ class ActionArbitration:
 
             logger.info(
                 f"AUTHORIZED LEASE: {lease.lease_id} for action {proposal.action_type} "
-                f"| Tier {proposal.risk_tier.value} | Channel {proposal.requested_channel.value}"
+                f"| Tier {proposal.risk_tier.value} | Channel {proposal.requested_channel}"
             )
             return lease, "Lease authorized successfully"
 
@@ -291,7 +290,7 @@ class ActionArbitration:
     ) -> AdmissionResult:
         """
         Atomic Execution Admission Check performed immediately before actuation.
-        
+
         Single atomic transaction:
         1. Acquire per-lease lock
         2. Validate active state, expiry, execution count, state revision, policy version, nonces, and safety overrides

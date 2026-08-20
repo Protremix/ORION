@@ -14,16 +14,14 @@ with replication capabilities. All replication is simulated in-process (no netwo
 to keep the simulation environment self-contained.
 """
 
-import os
-import time
-import json
-import uuid
 import hashlib
 import logging
 import sqlite3
 import threading
-from typing import Dict, List, Optional, Any, Tuple
+import time
+import uuid
 from dataclasses import dataclass, field
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from src.safety.safety_enforcement import ControlBarrierFunction

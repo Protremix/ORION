@@ -48,7 +48,6 @@ except ImportError:
     except ImportError:
         from .safety_enforcement import (
             DecisionType,
-            SafetyDecision,
             SafetyEnforcement,
             SafetySeverity,
         )

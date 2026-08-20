@@ -16,13 +16,14 @@ import logging
 import math
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 # Lazy import - openai is only loaded when GPT reasoning is actually invoked.
 # This prevents sys.modules pollution that would trigger safety independence test failures.
 HAS_OPENAI = True
 
 from src.monitoring.gpt_monitor import GPTIntegrationMonitor
+
 
 def _get_openai_client():
     """Lazily import and create OpenAI client only when needed."""
@@ -32,7 +33,6 @@ def _get_openai_client():
 from src.contracts import (
     ActionProposal,
     BeliefState,
-    Envelope,
     Goal,
     GoalSource,
     GoalType,
@@ -313,11 +313,10 @@ class CognitivePlane:
         goals: List[Goal] = []
         action_proposals: List[ActionProposal] = []
 
-        correlation_id = belief_state.envelope.correlation_id
 
         # Parse goals
         for g_data in parsed.get("goals", []):
-        
+
             g = Goal(
                 goal_type=g_data.get("goal_type", GoalType.REACH_STATE.value),
                 goal_parameters=g_data.get("goal_parameters", {}),
@@ -329,7 +328,7 @@ class CognitivePlane:
 
         # Parse action proposals
         for idx, a_data in enumerate(parsed.get("action_proposals", [])):
-        
+
 
             # Ensure mandatory risk assessment structure
             risk_tier = a_data.get("risk_tier", 1)
@@ -365,7 +364,6 @@ class CognitivePlane:
         instruction: str,
     ) -> Dict[str, List[Union[Goal, ActionProposal]]]:
         """Deterministic fallback planning algorithm when LLM is offline or disabled."""
-        correlation_id = belief_state.envelope.correlation_id
         target_x, target_y = 5.0, 5.0
 
         # Parse potential coordinate in instruction (e.g. "x=8, y=8" or "(8, 8)")
@@ -378,7 +376,7 @@ class CognitivePlane:
                 pass
 
         # Goal creation
-        
+
         goal = Goal(
             goal_type=GoalType.REACH_STATE.value,
             goal_parameters={"target_position": [target_x, target_y, 0.0]},
@@ -403,7 +401,7 @@ class CognitivePlane:
                 {"target_x": target_x, "target_y": target_y, "speed": speed},
                 belief_state,
             )
-        
+
 
             expected_duration = int((dist / max(speed, 0.1)) * 1000)
 
@@ -433,7 +431,7 @@ class CognitivePlane:
         else:
             # Reached target, proposal to stop or scan
             risk_eval = self.assess_risk("stop", {}, belief_state)
-        
+
             proposal = ActionProposal(
                 goal_id=goal.envelope.contract_id,
                 action_type="stop",

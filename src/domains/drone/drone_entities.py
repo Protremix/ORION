@@ -233,7 +233,7 @@ class CollisionAvoidance3D:
 
     def filter_velocity(self, drone_pos: List[float], desired_vel: List[float]) -> List[float]:
         """Filter velocity to avoid collisions (CBF projection).
-        
+
         Instead of fully stopping, redirects velocity around the obstacle
         by adding a lateral component perpendicular to the obstacle direction.
         """

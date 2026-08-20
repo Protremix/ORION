@@ -18,16 +18,22 @@ import json
 import logging
 import os
 import time
-import urllib.request
 import urllib.error
-from typing import Any, Dict, List, Optional
+import urllib.request
+from typing import Any, Optional
 
-from src.models import (
-    TextModelAdapter, TextRequest, TextResponse,
-    VisionModelAdapter, VisionRequest, VisionResponse,
-    EmbeddingModelAdapter, EmbeddingRequest, EmbeddingResponse,
-)
 from src.api import ModelDescriptor, ModelType
+from src.models import (
+    EmbeddingModelAdapter,
+    EmbeddingRequest,
+    EmbeddingResponse,
+    TextModelAdapter,
+    TextRequest,
+    TextResponse,
+    VisionModelAdapter,
+    VisionRequest,
+    VisionResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +155,7 @@ class GPT4oTextAdapter(TextModelAdapter):
         if not self._api_key:
             return False
         try:
-            result = _openai_request("chat/completions", {
+            _openai_request("chat/completions", {
                 "model": self._model,
                 "messages": [{"role": "user", "content": "ping"}],
                 "max_tokens": 1,
@@ -246,7 +252,7 @@ class GPT4oVisionAdapter(VisionModelAdapter):
             return False
         try:
             # Minimal text-only check (vision model supports text too)
-            result = _openai_request("chat/completions", {
+            _openai_request("chat/completions", {
                 "model": self._model,
                 "messages": [{"role": "user", "content": "ping"}],
                 "max_tokens": 1,
@@ -313,7 +319,7 @@ class OpenAIEmbeddingAdapter(EmbeddingModelAdapter):
 # Model Registry Factory — Pre-registered GPT-4o models
 # ============================================================================
 
-def create_default_registry(api_key: Optional[str] = None) -> "ModelRegistry":
+def create_default_registry(api_key: Optional[str] = None) -> Any:
     """
     Create a ModelRegistry pre-configured with GPT-4o adapters.
     This is the default model stack for ORION (per Founder directive:

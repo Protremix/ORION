@@ -14,12 +14,12 @@ License: Apache 2.0
 
 from __future__ import annotations
 
-import time
+import abc
 import logging
+import time
 from dataclasses import dataclass, field
 from enum import Enum
-import abc
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +169,7 @@ class EvaluationTest(abc.ABC):
 class ORIONEval:
     """
     ORION Evaluation Engine — Master Spec §20.
-    
+
     Runs evaluation tests across all categories and produces a report.
     No invented benchmark numbers — all results are measured.
     """
@@ -275,11 +275,11 @@ class OPIBResult:
 class OPIB:
     """
     ORION Physical Intelligence Benchmark — Master Spec §21.
-    
+
     Test flow per scenario:
-        Observation -> World State -> Prediction -> Planning -> 
+        Observation -> World State -> Prediction -> Planning ->
         Simulation -> Action -> Result -> Recovery
-    
+
     Uses unseen test environments and appropriate baselines.
     Claims of superiority require measured evidence.
     """

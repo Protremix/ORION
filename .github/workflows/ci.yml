@@ -59,7 +59,7 @@ jobs:
           ORION_PG_PORT: 5432
 
       - name: Lint
-        run: ruff check src/ || true
+        run: ruff check src/
 
       - name: Type check
-        run: mypy src/ --ignore-missing-imports || true
+        run: mypy src/ --ignore-missing-imports

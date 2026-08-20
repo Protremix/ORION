@@ -6,14 +6,14 @@ License: Apache 2.0
 
 from __future__ import annotations
 
-import os
-import time
 import hashlib
 import hmac
 import logging
+import os
+import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Optional, Deque
+from typing import Deque, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class AuthConfig:
 class AuthManager:
     """
     Manages API authentication and rate limiting for ORION API.
-    
+
     Authentication: Bearer token via ORION_API_KEY env var or explicit config.
     Rate limiting: Sliding window per-token.
     """

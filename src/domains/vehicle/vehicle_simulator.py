@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from simulation.grid_world import GridWorld
 from src.contracts.contracts import (
@@ -42,7 +42,6 @@ from src.domains.vehicle.vehicle_entities import (
     SpeedController,
     SteeringController,
     TrafficLightSensor,
-    VehicleDomainEntity,
     VehicleEntity,
 )
 
@@ -372,7 +371,6 @@ class VehicleSimulation:
         """Arbitrate and execute an ActionProposal through the ORION pipeline."""
         lease_id = generate_contract_id()
         action_type = proposal.action_type
-        target_id = proposal.target_entity
         params = proposal.action_parameters or {}
 
         # 1. Emergency state rejection

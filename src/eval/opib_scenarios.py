@@ -10,8 +10,9 @@ License: Apache 2.0
 
 from __future__ import annotations
 
-from eval import OPIB, OPIBScenario, OPIBResult
 from typing import Any, Dict, List
+
+from eval import OPIBScenario
 
 
 def create_vehicle_scenarios() -> List[OPIBScenario]:
@@ -254,7 +255,7 @@ class OPIBTestSystem:
         """Predict future states using world model."""
         # Use WorldModel if available, otherwise simple kinematic prediction
         try:
-            from world_model import WorldModel, StateSnapshot
+            from world_model import StateSnapshot, WorldModel
             snapshot = StateSnapshot(
                 domain=self._current_state.get("domain", "vehicle"),
                 state=self._current_state,
@@ -270,7 +271,7 @@ class OPIBTestSystem:
     def opib_plan(self, initial_state: Dict[str, Any]) -> bool:
         """Plan actions to achieve the goal."""
         # Verify we can plan a path
-        obstacles = self._current_state.get("obstacles", [])
+        self._current_state.get("obstacles", [])
         target = self._current_state.get("target_pos") or self._current_state.get("place_pos")
         if target is None and "intersection_pos" in self._current_state:
             target = self._current_state["intersection_pos"]
@@ -285,8 +286,8 @@ class OPIBTestSystem:
     def opib_act(self, initial_state: Dict[str, Any]) -> bool:
         """Execute the planned action with safety enforcement."""
         # Safety check — must not collide
-        obstacles = self._current_state.get("obstacles", [])
-        robot_pos = self._current_state.get("robot_pos") or self._current_state.get("ego_lane")
+        self._current_state.get("obstacles", [])
+        self._current_state.get("robot_pos") or self._current_state.get("ego_lane")
         return True
 
     def opib_result(self, initial_state: Dict[str, Any]) -> bool:

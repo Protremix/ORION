@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Dict, Optional
 

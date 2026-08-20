@@ -16,14 +16,13 @@ and action proposal -> arbitration -> execution pipeline integration.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from src.contracts.contracts import (
     ActionExecutionResult,
     ActionProposal,
     ExecutionOutcome,
     ExecutionStage,
-    RiskTier,
     generate_contract_id,
 )
 from src.domains.industrial.industrial_entities import (
@@ -150,7 +149,7 @@ class IndustrialSimulation:
         # Process fluid flow if valve open and system not in ESTOP
         if self.valve.is_open and self.system_status != "ESTOP":
             flow_added = self.valve.flow_rate * (dt / 60.0)  # L/min to L per step
-            actual_added = self.tank.add_fluid(flow_added)
+            self.tank.add_fluid(flow_added)
 
             # Overflow protection trigger automatically closes valve
             if self.tank.overflow_protection_active:

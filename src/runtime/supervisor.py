@@ -25,11 +25,11 @@ import logging
 import os
 import time
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
-from runtime.worker import Worker, WorkerStatus, WorkerResult
+from runtime.worker import Worker, WorkerResult, WorkerStatus
 
 logger = logging.getLogger(__name__)
 

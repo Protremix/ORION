@@ -10,4 +10,4 @@ License: Apache 2.0
 """
 
 from runtime.supervisor import RuntimeSupervisor, SupervisorState, SupervisorStatus
-from runtime.worker import Worker, WorkerStatus, WorkerResult
+from runtime.worker import Worker, WorkerResult, WorkerStatus

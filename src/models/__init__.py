@@ -19,11 +19,11 @@ License: Apache 2.0
 from __future__ import annotations
 
 import abc
-import time
 import logging
+import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from src.api import ModelAdapter, ModelDescriptor, ModelType, ORIONResponse, ORIONStatus
 
@@ -269,7 +269,7 @@ class EmbeddingModelAdapter(abc.ABC):
 class ModelRegistry:
     """
     Central registry for all model adapters in ORION.
-    
+
     Models are registered by type and can be swapped at runtime.
     The core intelligence queries the registry, never hardcoding a specific model.
     """
@@ -362,14 +362,15 @@ class ModelRegistry:
 
     def health_check_all(self) -> Dict[str, Dict[str, bool]]:
         """Health check all registered models."""
-        results = {}
-        for category, adapters in [
+        results: Dict[str, Dict[str, Any]] = {}
+        adapter_groups: list[tuple[str, Dict[str, Any]]] = [
             ("text", self._text_adapters),
             ("vision", self._vision_adapters),
             ("audio", self._audio_adapters),
             ("video", self._video_adapters),
             ("world_model", self._world_model_adapters),
             ("embedding", self._embedding_adapters),
-        ]:
+        ]
+        for category, adapters in adapter_groups:
             results[category] = {name: adapter.health_check() for name, adapter in adapters.items()}
         return results

@@ -11,13 +11,13 @@ Key Safety Guarantees:
 3. Monotonic Clock & Immutable Audit Logging: All transitions are cryptographically hash-linked and audited.
 """
 
-import time
-import uuid
 import hashlib
 import logging
-from enum import Enum, auto
-from typing import Dict, List, Optional, Set, Tuple, Callable
-from dataclasses import dataclass, field
+import time
+import uuid
+from dataclasses import dataclass
+from enum import Enum
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +149,7 @@ STATE_ALLOWED_ACTIONS: Dict[AuthorityState, Set[str]] = {
 class AuthorityTransitionStateMachine:
     """
     8-State Authority Transition State Machine with Monotonic Safety Enforcement.
-    
+
     Manages operational authority states and validates state transitions according
     to strict evidence-based and role-authorized criteria.
     """
@@ -535,7 +535,7 @@ class AuthorityTransitionStateMachine:
                     return False, f"Transition requires SAFETY_ASSURANCE authorization, got {authorizer.role.value}"
             elif required_owner == AuthorizerRole.SAFETY_ASSURANCE_AND_FOUNDER:
                 if authorizer.role != AuthorizerRole.SAFETY_ASSURANCE_AND_FOUNDER:
-                    return False, f"Transition requires joint SAFETY_ASSURANCE_AND_FOUNDER authorization"
+                    return False, "Transition requires joint SAFETY_ASSURANCE_AND_FOUNDER authorization"
 
             return True, f"Transition {from_state.value} -> {to_state.value} authorized"
 

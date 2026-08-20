@@ -17,15 +17,14 @@ Normative Contracts:
 9. MemoryWrite - Cognitive memory storage request.
 """
 
-from dataclasses import dataclass, field, asdict
-from enum import Enum
 import hashlib
 import hmac
 import json
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, Union
-
+from dataclasses import asdict, dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional, Union
 
 # -----------------------------------------------------------------------------
 # Enums and Constants
@@ -72,15 +71,15 @@ class GoalPriority(int, Enum):
 
 class RiskTier(int, Enum):
     """Action risk tier classification.
-    
+
     Used by both contracts and arbitration modules.
     TIER_1 = lowest risk, TIER_3 = highest risk requiring SA approval.
     String aliases maintained for backward compatibility.
     """
     TIER_1 = 1   # Minimal/Low risk
-    TIER_2 = 2   # Moderate risk  
+    TIER_2 = 2   # Moderate risk
     TIER_3 = 3   # High/Critical risk
-    
+
     # String aliases for backward compatibility
     MINIMAL = TIER_1
     LOW = TIER_1
@@ -175,7 +174,7 @@ def current_wall_clock_ms() -> int:
 @dataclass
 class BaseContract:
     """Base dataclass for all ORION normative data contracts.
-    
+
     Provides standard metadata, hash computation, HMAC signing, verification,
     dictionary conversion, and validation interface.
     """
@@ -229,18 +228,18 @@ class BaseContract:
         computed_hash = hashlib.sha256(
             json.dumps(self._canonical_payload_dict(), sort_keys=True, default=str).encode("utf-8")
         ).hexdigest()
-        
+
         expected_mac = hmac.new(
             secret_key.encode("utf-8"),
             computed_hash.encode("utf-8"),
             hashlib.sha256
         ).hexdigest()
-        
+
         return hmac.compare_digest(self.signature, expected_mac)
 
     def validate(self) -> bool:
         """Validate metadata and contract invariant rules.
-        
+
         Subclasses should override and call super().validate().
         Raises ValueError if invalid.
         """
@@ -283,7 +282,7 @@ class BaseContract:
 @dataclass
 class Observation(BaseContract):
     """1. Observation Contract.
-    
+
     Produced by State Plane, consumed by Cognitive Plane and Action Arbitration.
     Encapsulates raw and preprocessed sensor data with confidence and latency telemetry.
     """
@@ -324,7 +323,7 @@ class Observation(BaseContract):
 @dataclass
 class BeliefState(BaseContract):
     """2. BeliefState Contract.
-    
+
     Produced by State Plane, consumed by Cognitive Plane, Action Arbitration, Safety Enforcement.
     Provides estimated world state, object tracking, spatial pose, and covariance matrices.
     """
@@ -372,7 +371,7 @@ class BeliefState(BaseContract):
 @dataclass
 class Goal(BaseContract):
     """3. Goal Contract.
-    
+
     Produced by Cognitive Plane, consumed by Action Arbitration.
     Defines high-level objective, priority, constraints, and deadline.
     """
@@ -415,7 +414,7 @@ class Goal(BaseContract):
 @dataclass
 class ActionProposal(BaseContract):
     """4. ActionProposal Contract.
-    
+
     Produced by Cognitive Plane, consumed by Action Arbitration.
     Represents candidate action with target actuator/device, parameters, expected outcome, and risk assessment.
     """
@@ -438,28 +437,28 @@ class ActionProposal(BaseContract):
     preconditions: Dict[str, Any] = field(default_factory=dict)
     expected_postconditions: Dict[str, Any] = field(default_factory=dict)
     cognitive_confidence: float = 0.9
-    
+
     # Backward-compatible aliases
     @property
     def target(self):
         return self.target_entity
-    
+
     @target.setter
     def target(self, value):
         self.target_entity = value
-    
+
     @property
     def parameters(self):
         return self.action_parameters
-    
+
     @parameters.setter
     def parameters(self, value):
         self.action_parameters = value
-    
+
     @property
     def expected_duration(self):
         return self.estimated_duration_ms
-    
+
     @expected_duration.setter
     def expected_duration(self, value):
         self.estimated_duration_ms = value
@@ -496,7 +495,7 @@ class ActionProposal(BaseContract):
 @dataclass
 class ActionAuthorization(BaseContract):
     """5. ActionAuthorization Contract (Lease).
-    
+
     Produced by Action Arbitration, consumed by Control Plane and Safety Enforcement.
     Grants a cryptographic, bounded lease binding the action to belief state revision and policy version.
     """
@@ -553,7 +552,7 @@ class ActionAuthorization(BaseContract):
 @dataclass
 class ActionExecutionResult(BaseContract):
     """6. ActionExecutionResult Contract.
-    
+
     Produced by Control Plane, consumed by Cognitive Plane, Action Arbitration, and Audit Plane.
     Reports detailed telemetry, actual duration, final state, and independent verifications.
     """
@@ -607,7 +606,7 @@ class ActionExecutionResult(BaseContract):
 @dataclass
 class SafetyDecision(BaseContract):
     """7. SafetyDecision Contract.
-    
+
     Produced by Safety Enforcement (execution time) or Safety Assurance (policy level).
     Broadcast to All Planes to command halts, overrides, lease revocations, or safe-state mandates.
     """
@@ -652,7 +651,7 @@ class SafetyDecision(BaseContract):
 @dataclass
 class AuditEvent(BaseContract):
     """8. AuditEvent Contract.
-    
+
     Produced by any plane, consumed by Audit Plane.
     Uses wall-clock UTC timestamps and hash chaining for tamper-evident audit trailing.
     """
@@ -694,7 +693,7 @@ class AuditEvent(BaseContract):
 @dataclass
 class MemoryWrite(BaseContract):
     """9. MemoryWrite Contract.
-    
+
     Produced EXCLUSIVELY by Cognitive Plane, consumed by Memory Plane.
     Requests durable or working memory storage with full cognitive provenance and permissions.
     """

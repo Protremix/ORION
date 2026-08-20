@@ -22,13 +22,12 @@ Each property is verified both mathematically (proof sketch) and empirically
 (exhaustive/randomized testing within the simulation).
 """
 
-import math
-import time
-import random
 import hashlib
 import logging
-from typing import Dict, List, Optional, Any, Tuple, Callable
+import random
+import time
 from dataclasses import dataclass, field
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +111,7 @@ class SafetyVerifier:
         Empirical test: Random states with h >= 0, apply filtered control,
         verify h remains >= 0 after simulation step.
         """
-        from src.safety.safety_enforcement import VelocityLimitCBF, ForceLimitCBF
+        from src.safety.safety_enforcement import ForceLimitCBF, VelocityLimitCBF
 
         test_count = 1000
         violations = 0
@@ -167,9 +166,7 @@ class SafetyVerifier:
         Claim: filter_control(state, nominal_control) always returns (safe_control, _)
         such that evaluate_constraint(state, safe_control) >= 0.
         """
-        from src.safety.safety_enforcement import (
-            VelocityLimitCBF, ForceLimitCBF, SpatialKeepOutCBF
-        )
+        from src.safety.safety_enforcement import ForceLimitCBF, SpatialKeepOutCBF, VelocityLimitCBF
 
         test_count = 1000
         violations = 0
@@ -238,7 +235,10 @@ class SafetyVerifier:
         ALL registered domains enter EMERGENCY state.
         """
         from src.safety.cross_domain_arbitration import (
-            CrossDomainArbitrator, SafetyEvent, SafetyCriticality, DomainState
+            CrossDomainArbitrator,
+            DomainState,
+            SafetyCriticality,
+            SafetyEvent,
         )
 
         test_count = 20
@@ -304,7 +304,7 @@ class SafetyVerifier:
         levels = list(SafetyCriticality)
         violations = 0
 
-        values = [l.value for l in levels]
+        values = [lvl.value for lvl in levels]
         if len(set(values)) != len(values):
             violations += 1
 
@@ -475,7 +475,7 @@ class SafetyVerifier:
 
         Claim: CBF filter computation completes within 1ms, E-stop propagation completes within 100ms.
         """
-        from src.safety.safety_enforcement import VelocityLimitCBF, ForceLimitCBF
+        from src.safety.safety_enforcement import VelocityLimitCBF
 
         test_count = 100
         cbf_violations = 0
@@ -679,8 +679,8 @@ class SafetyVerifier:
 
         Claim: Loss of any single sensor does not cause unsafe action; loss of any single domain does not affect others unsafely.
         """
-        from src.safety.safety_enforcement import HomeFallbackController
         from src.safety.cross_domain_arbitration import CrossDomainArbitrator, SafetyCriticality
+        from src.safety.safety_enforcement import HomeFallbackController
 
         controller = HomeFallbackController()
         safe_action = controller.compute_fallback_action({})
