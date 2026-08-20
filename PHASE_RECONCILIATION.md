@@ -34,7 +34,7 @@ This document maps ORION's implementation phases (Phases 1-7) to the Master Spec
 | **Phase 1** | Foundation: 8 planes, simulation environment, safety framework | ✅ Covered by Impl Phase 1+7 | 8 planes (src/cognitive, src/memory, src/state, simulation/), Safety Layer v3 (src/safety/) |
 | **Phase 2** | Reasoning + Memory: LLM integration, episodic/semantic memory, world state | ✅ Covered by Impl Phase 2 | GPT-4o integration (tests/test_gpt_integration.py), Memory system (src/memory/), PostgreSQL + pgvector |
 | **Phase 3** | Perception: Multimodal input processing (vision, audio, sensors) | ⚠️ Interface only | Multimodal adapters defined (src/models/), vision/audio/video adapter ABCs. No live integration yet. |
-| **Phase 4** | World Model: Physics simulation, future prediction, uncertainty | ⚠️ Partial | Domain simulators (industrial, vehicle, drone, home) provide physics. World model adapter interface defined. No dedicated world model trained. |
+| **Phase 4** | World Model: Physics simulation, future prediction, uncertainty | ✅ Covered by Impl Phase 8 | WorldModel class with 4 domain physics models, uncertainty quantification, batch prediction, action selection. 37 tests. |
 | **Phase 5** | Planning + Action: Goal decomposition, action selection, execution | ⚠️ Interface only | ORION API plan() and execute() defined. Action arbitration (src/arbitration/). No live planner implementation. |
 | **Phase 6** | Safety Certification: Formal verification, safety layer v3, emergency | ✅ Covered by Impl Phase 7 | 12 formally verified properties (src/safety/formal_verification.py), actuator verification pipeline, physical watchdog, cross-domain arbitration |
 | **Phase 7** | Simulation-First Validation: All domains in simulation | ✅ Covered by Impl Phase 2-4 | 4 domain simulators, simulation interface (src/api/), simulation-first approach documented (ADR-007) |
@@ -52,7 +52,7 @@ This document maps ORION's implementation phases (Phases 1-7) to the Master Spec
 | Phase 1 (Foundation) | ✅ | | | | | | ✅ (Safety v3) |
 | Phase 2 (Reasoning+Memory) | | ✅ | ✅ | | ✅ | | |
 | Phase 3 (Perception) | | | | | | | ⚠️ (interfaces) |
-| Phase 4 (World Model) | | ✅ | ✅ | ✅ | | | ⚠️ (interfaces) |
+| Phase 4 (World Model) | | ✅ | ✅ | ✅ | | | ✅ |
 | Phase 5 (Planning+Action) | ✅ | ✅ | ✅ | ✅ | | | ⚠️ (interfaces) |
 | Phase 6 (Safety Cert) | | | | ✅ | | ✅ | ✅ |
 | Phase 7 (Sim Validation) | ✅ | ✅ | ✅ | ✅ | | | ✅ |
@@ -65,15 +65,15 @@ This document maps ORION's implementation phases (Phases 1-7) to the Master Spec
 
 ## Gap Analysis
 
-### Fully Covered (6/11)
+### Fully Covered (7/11)
 - Phase 1: Foundation ✅
 - Phase 2: Reasoning + Memory ✅
 - Phase 6: Safety Certification ✅
 - Phase 7: Simulation-First Validation ✅
 - Phase 5: Planning + Action (partial — interfaces + domain implementations, no autonomous planner)
-- Phase 4: World Model (partial — domain simulators provide physics, no dedicated world model)
+- Phase 4: World Model ✅ (WorldModel with 4 domain physics, 37 tests, Luna approved)
 
-### Interface Only (2/11)
+### Interface Only (1/11)
 - Phase 3: Perception — multimodal adapter interfaces defined, no live vision/audio/video integration
 - Phase 5: Planning + Action — API interfaces defined, action arbitration implemented, no autonomous goal decomposition
 
@@ -127,7 +127,7 @@ This document maps ORION's implementation phases (Phases 1-7) to the Master Spec
 
 - **Total source files:** 50+ Python files
 - **Total lines:** ~25,000
-- **Total tests:** 336 (9 skipped — require live PostgreSQL)
+- **Total tests:** 447 (9 skipped — require live PostgreSQL)
 - **Documentation:** 20+ deliverables + 12 ADRs
 - **Domains implemented:** 4 (Industrial, Vehicle, Drone, Smart Home)
 - **Safety properties verified:** 12 (formally verified)
