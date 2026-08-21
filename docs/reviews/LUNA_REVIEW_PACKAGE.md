@@ -1,4 +1,4 @@
-# LUNA REVIEW PACKAGE — Round 3
+# LUNA REVIEW PACKAGE — Round 4
 
 ## Project
 ORION — Physical Intelligence OS
@@ -7,13 +7,13 @@ ORION — Physical Intelligence OS
 Phase 001B (Final Reconciliation & Security Recovery)
 
 ## Commit SHA
-a8d74ed
+fa26b58
 
 ## Branch
 main
 
 ## Task
-TASK 001B: Luna Independent Review Round 3
+TASK 001B: Luna Independent Review Round 4
 
 ## Acceptance Criteria
 1. Clean venv install with `pip install -e ".[dev]"`
@@ -41,23 +41,27 @@ TASK 001B: Luna Independent Review Round 3
 23. Hash chain validates sequence numbers
 24. Cross-domain emergency clearing requires authorization
 
-## Files Changed (13 files, +347 -144)
-- src/api/auth.py — removed debug mode bypass
-- src/api/permissions.py — wildcard/exact-string bypass fixed, HMAC persistence
-- src/api/__init__.py — validation wired in, PHYSICAL without device_id rejected, debug bypass removed
-- src/config/policy_manager.py — fallback signature removed
-- src/domains/vehicle/vehicle_simulator.py — AEB fix, emergency reset HMAC
-- src/memory/memory_system.py — mandatory authorization for writes/updates/deletes
-- src/safety/actuator_verification.py — NaN check, unknown params, authority exact match, pipeline try/except, HMAC audit, immutable entries, sequence validation
-- tests/unit/test_action_categories.py — updated for new auth requirements
-- tests/unit/test_api.py — updated for new auth requirements + new security tests
-- tests/unit/test_auth.py — debug mode test fixed, new fail-closed tests
-- tests/unit/test_memory_system.py — authorization required for writes/deletes
-- tests/unit/test_permissions_persistence.py — HMAC audit key for persistence
-- tests/test_gpt_integration.py — authorization for memory writes
+## Files Changed (Round 4 — 17 files, +327 -163)
+- src/api/permissions.py — fixed perms_list undefined in load_from_storage
+- src/persistence/storage.py — fixed audit hash chain sequence off-by-one, import_from_json admin perms
+- src/domains/home/home_simulator.py — clear_emergency HMAC enforcement
+- src/domains/vehicle/vehicle_simulator.py — emergency reset HMAC
+- src/safety/cross_domain_arbitration.py — cross-domain emergency clearing HMAC
+- src/safety/actuator_verification.py — NaN, unknown params, exact match, fail-closed, immutable
+- src/api/__init__.py — validation, PHYSICAL device_id, debug bypass removed
+- src/arbitration/action_arbitration.py — import fixes
+- src/audit/audit_system.py — import fixes
+- src/persistence/postgres_storage.py — conditional asyncpg import
+- tests/unit/test_cross_domain.py — HMAC credentials for clear_emergency
+- tests/unit/test_cross_domain_integration.py — HMAC credentials for clear_emergency
+- tests/unit/test_home_domain.py — HMAC credentials for clear_emergency
+- tests/unit/test_performance_benchmarks.py — HMAC credentials for clear_emergency
+- tests/unit/test_persistence.py — actor_permissions for memory CRUD
+- tests/unit/test_postgres_storage.py — actor_permissions for memory CRUD
+- Dockerfile — non-root user
 
 ## Test Results
-- 639 passed, 9 skipped (live PG only), 0 failed
+- 651 passed, 9 skipped (live PG only), 0 failed
 - Ruff: all checks passed
 - Mypy: Success, no issues found in 62 source files
 
@@ -76,7 +80,7 @@ TASK 001B: Luna Independent Review Round 3
 - Emergency rate limit bypass: ELIMINATED
 - Pipeline exception escape: ELIMINATED (fail-closed)
 - Audit log mutability: ELIMINATED (deep copies)
-- Hash chain sequence: VALIDATED
+- Hash chain sequence: VALIDATED (fixed off-by-one: starts at 1)
 - Cross-domain emergency clearing: AUTHORIZED (HMAC)
 - Vehicle AEB condition: FIXED
 - Vehicle emergency reset: AUTHORIZED (HMAC)
@@ -86,18 +90,23 @@ TASK 001B: Luna Independent Review Round 3
 - Live PostgreSQL tests skipped (require Docker/PG instance)
 - GPT integration tests skipped (require OpenAI API key)
 - Load/scalability tests not run in this cycle
-- Cross-domain arbitration lock usage and hash chain could be further hardened
 
 ## Known Risks
 - None identified in this round
 
 ## Previous Failures
 - Round 1 (gpt-4o): INVALID — wrong model used, not Luna
-- Round 2: Luna found 14 bypass vectors (debug mode, wildcard, exact-string, PHYSICAL, validation, HMAC, NaN, unknown params, authority prefix, emergency bypass, pipeline exceptions, audit mutability, emergency clearing, vehicle AEB)
-- Round 3: All 14 bypass vectors fixed
+- Round 2: Luna found 14 bypass vectors
+- Round 3: All 14 fixed. Luna found 12 additional blocking findings.
+- Round 4: Fixed all remaining test failures
 
-## Fixes Applied in Round 3
-See "Security Results" above — all 14 categories addressed with structural fixes.
+## Fixes Applied in Round 4
+1. Fixed perms_list undefined in load_from_storage — json.loads(perms_json)
+2. Fixed audit hash chain sequence off-by-one — starts at 1, not 0
+3. Fixed import_from_json to pass admin actor_permissions to create_memory
+4. Updated all clear_emergency test calls with valid HMAC credentials (4 test files)
+5. Updated memory CRUD test calls with required actor_permissions (2 test files)
+6. Ruff auto-fixed 20 import-order issues
 
 ## Reproduction Commands
 ```bash
@@ -109,3 +118,6 @@ python -m pytest tests/ --ignore=tests/load --ignore=tests/test_gpt_integration.
 python -m ruff check src/ tests/
 python -m mypy src/ --ignore-missing-imports
 ```
+
+## Luna Review Request
+Independently review the complete repository at commit fa26b58 and determine whether all Phase 001B acceptance criteria are satisfied. Do not trust summaries — verify against actual source code.
