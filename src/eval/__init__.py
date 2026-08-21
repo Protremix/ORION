@@ -174,18 +174,25 @@ class EvalReport:
         return scores
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialize full report to dictionary."""
+        """Serialize full report to dictionary with complete metadata."""
         return {
+            "report_id": self.report_id,
+            "timestamp": self.timestamp,
+            "metadata": self.metadata,
             "results": [r.to_dict() for r in self.results],
             "summary": {
                 "total": len(self.results),
                 "passed": sum(1 for r in self.results if r.passed),
                 "failed": sum(1 for r in self.results if not r.passed),
+                "skipped": sum(1 for r in self.results if r.status == EvalStatus.SKIPPED),
+                "errors": sum(1 for r in self.results if r.status == EvalStatus.ERROR),
                 "pass_rate": self.pass_rate,
                 "total_score": self.total_score,
                 "avg_latency_ms": sum(r.latency_ms for r in self.results) / max(len(self.results), 1),
                 "avg_cost": sum(r.cost_estimate for r in self.results) / max(len(self.results), 1),
                 "total_cost": sum(r.cost_estimate for r in self.results),
+                "test_count": self.metadata.get("test_count", len(self.results)),
+                "benchmark_version": self.metadata.get("benchmark_version", "1.0.0"),
             },
             "category_scores": self.category_scores(),
         }
@@ -261,6 +268,12 @@ class ORIONEval:
                         metric=test.metric,
                         status=EvalStatus.SKIPPED,
                         error="Setup failed",
+                        model=getattr(system, 'model_name', 'unknown'),
+                        version=getattr(system, 'version', 'unknown'),
+                        hardware=getattr(system, 'hardware', 'unknown'),
+                        prompt=f"setup:{test.metric.name}",
+                        test_version="1.0",
+                        failure_reason="Setup failed",
                     ))
                     continue
 
@@ -274,6 +287,12 @@ class ORIONEval:
                     metric=test.metric,
                     status=EvalStatus.ERROR,
                     error=str(e),
+                    model=getattr(system, 'model_name', 'unknown'),
+                    version=getattr(system, 'version', 'unknown'),
+                    hardware=getattr(system, 'hardware', 'unknown'),
+                    prompt=f"run:{test.metric.name}",
+                    test_version="1.0",
+                    failure_reason=str(e),
                 ))
 
         return report
@@ -292,6 +311,12 @@ class ORIONEval:
                         metric=test.metric,
                         status=EvalStatus.ERROR,
                         error=str(e),
+                        model=getattr(system, 'model_name', 'unknown'),
+                        version=getattr(system, 'version', 'unknown'),
+                        hardware=getattr(system, 'hardware', 'unknown'),
+                        prompt=f"run_category:{test.metric.name}",
+                        test_version="1.0",
+                        failure_reason=str(e),
                     ))
         return results
 

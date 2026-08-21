@@ -98,14 +98,18 @@ def run_benchmarks(
                     cat_enums.append(ce)
                     break
         if not cat_enums:
-            print(f"WARNING: No matching categories found for {categories}")
+            print(f"ERROR: No matching categories found for {categories}")
             print(f"Available: {[c.value for c in EvalCategory]}")
-            return {}
+            return {"error": "no_matching_categories"}
         results = []
         for ce in cat_enums:
             cat_results = eval_system.run_category(ce, system)
             results.extend(cat_results)
-        report = EvalReport(results=results)
+        report = EvalReport(
+            report_id=f"eval_{int(time.time())}",
+            results=results,
+            metadata={"test_count": len(results), "benchmark_version": __version__},
+        )
     else:
         report = eval_system.run_all(system)
 
@@ -126,6 +130,11 @@ def run_benchmarks(
     for cat, score in report_dict["category_scores"].items():
         print(f"  {cat}: {score:.3f}")
     print()
+
+    # Create output directory if needed
+    output_dir = os.path.dirname(output)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
 
     # Write output
     if "json" in format:
