@@ -99,11 +99,21 @@ class SafetyDecision:
     hash: str = ""
 
     def compute_hash(self) -> str:
+        """Compute HMAC-SHA256 hash of decision content for integrity protection.
+
+        Uses ORION_AUDIT_KEY or ORION_POLICY_KEY for HMAC. Falls back to plain
+        SHA-256 only if no key is configured (logged as warning).
+        """
         content = (
             f"{self.contract_id}:{self.timestamp_ns}:{self.decision_type.value}:"
             f"{self.scope.value}:{self.reason_code}:{self.severity.value}"
         )
-        return hashlib.sha256(content.encode('utf-8')).hexdigest()
+        key = os.environ.get("ORION_AUDIT_KEY") or os.environ.get("ORION_POLICY_KEY")
+        if key:
+            import hmac as _hmac
+            return _hmac.new(key.encode("utf-8"), content.encode("utf-8"), hashlib.sha256).hexdigest()
+        logger.warning("No ORION_AUDIT_KEY or ORION_POLICY_KEY set — SafetyDecision hash uses unkeyed SHA-256 (reduced integrity protection)")
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 # ============================================================================

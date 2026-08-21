@@ -67,15 +67,16 @@ class TestActionCategoryEnforcement:
         )
         assert resp.ok
 
-    def test_default_category_digital(self):
-        """Action without action_category defaults to DIGITAL and is allowed."""
+    def test_default_category_rejected(self):
+        """Action without action_category is REJECTED — prevents category bypass attack (Vector #10)."""
         resp = self.api.execute(
             {"command": "log_event"},
             simulate_first=False,
             agent_id="test_agent",
             token="test_key",
         )
-        assert resp.ok
+        assert not resp.ok
+        assert "action_category is required" in resp.error
 
     def test_financial_blocked_with_auth_enabled(self):
         """Financial action blocked even when auth is enabled with valid token."""
