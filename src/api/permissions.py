@@ -321,6 +321,13 @@ class PermissionChecker:
                 return True  # No required level means it's a level enum match
 
             # 2. Wildcard — ONLY for mapped non-safety-critical actions
+            # Vector #9 REVIEW: "ALL"/"*" wildcard is SUFFICIENTLY RESTRICTED:
+            #   - Safety-critical actions: DENIED (continue)
+            #   - SUPERVISOR+ level actions: DENIED (continue)
+            #   - Unmapped/unknown actions: DENIED (continue)
+            #   - Mapped non-safety-critical (READ/WRITE/ADMIN): ALLOWED
+            # This prevents wildcard from authorizing arbitrary or dangerous actions
+            # while still allowing broad access to standard operations.
             if isinstance(perm, str) and perm.strip() in ("*", "ALL"):
                 if (action and _is_safety_critical(action)) or (action_name and _is_safety_critical(action_name)):
                     continue  # Never authorize safety-critical via wildcard
