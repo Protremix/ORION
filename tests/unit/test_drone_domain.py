@@ -22,6 +22,7 @@ from src.domains.drone.drone_entities import (
     IMUSensor,
 )
 from src.domains.drone.drone_simulator import DroneSimulation
+from src.contracts.contracts import issue_safety_token
 
 
 class TestDroneDomain(unittest.TestCase):
@@ -188,7 +189,8 @@ class TestDroneDomain(unittest.TestCase):
         self.assertEqual(proposal.action_type, "takeoff")
         self.assertEqual(proposal.target_entity, "drone_1")
 
-        proposal.safety_approved = True  # Simulate Safety Gateway approval
+        proposal.safety_approved = True
+        proposal.safety_auth_token = issue_safety_token(proposal.action_id, proposal.action_type, proposal.target_entity)  # Simulate Safety Gateway approval
         result = self.sim.execute_action(proposal)
         self.assertEqual(result.outcome, ExecutionOutcome.COMPLETED)
         self.assertEqual(self.sim.drone.state, "FLYING")

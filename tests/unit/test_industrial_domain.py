@@ -16,6 +16,7 @@ from src.domains.industrial.industrial_entities import (
     ValveController,
 )
 from src.domains.industrial.industrial_simulator import IndustrialSimulation
+from src.contracts.contracts import issue_safety_token
 
 
 class TestIndustrialDomain(unittest.TestCase):
@@ -176,6 +177,7 @@ class TestIndustrialDomain(unittest.TestCase):
             action_parameters={"target_pos": [5.0, 0.0, 0.5]},
         )
         proposal.safety_approved = True
+        proposal.safety_auth_token = issue_safety_token(proposal.action_id, proposal.action_type, proposal.target_entity)
 
         exec_res = sim.propose_action(proposal)
         self.assertEqual(exec_res.outcome, ExecutionOutcome.FAILED.value)

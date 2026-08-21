@@ -379,7 +379,10 @@ class VehicleSimulation:
         """Arbitrate and execute an ActionProposal through the ORION pipeline."""
         # Safety Gateway enforcement: all vehicle actions require safety_approved=True
         # Vehicles are safety-critical (SC-2) — every action must go through Safety Gateway
-        if getattr(proposal, "safety_approved", False) is not True:
+        if not (
+            getattr(proposal, "safety_approved", False) is True
+            and getattr(proposal, "has_valid_safety_auth", lambda: False)()
+        ):
             return ActionExecutionResult(
                 lease_id=generate_contract_id(),
                 outcome=ExecutionOutcome.REJECTED.value,

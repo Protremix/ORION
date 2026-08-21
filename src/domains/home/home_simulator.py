@@ -340,11 +340,14 @@ class HomeSimulation:
             "lock", "unlock", "trigger_evacuation", "clear_emergency",
             "set_temperature", "set_brightness", "set_hvac_mode",
         }
-        if proposal.action_type in physical_actions and getattr(proposal, "safety_approved", False) is not True:
+        if proposal.action_type in physical_actions and not (
+            getattr(proposal, "safety_approved", False) is True
+            and getattr(proposal, "has_valid_safety_auth", lambda: False)()
+        ):
             return ActionExecutionResult(
                 outcome=ExecutionOutcome.REJECTED,
                 execution_stage=ExecutionStage.COMPLETED,
-                deviation_reason=f"Safety Gateway rejection: action '{proposal.action_type}' requires safety_approved=True (direct simulator access denied)",
+                deviation_reason=f"Safety Gateway rejection: action '{proposal.action_type}' requires valid safety authorization token (Change #3: mutable boolean no longer sufficient)",
                 producer="HomeSimulation",
                 consumer="ActionArbitration",
             )

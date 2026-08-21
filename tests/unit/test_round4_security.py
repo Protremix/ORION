@@ -24,6 +24,7 @@ from src.domains.home.home_simulator import HomeSimulation as HomeSimulator
 from src.models import VisionRequest
 from src.models.gpt4o_adapters import GPT4oVisionAdapter, validate_image_path
 from src.persistence.task_state import CheckpointType, TaskStateManager, TaskStatus
+from src.contracts.contracts import issue_safety_token
 
 
 class TestDomainSimulatorSafetyGate:
@@ -61,6 +62,7 @@ class TestDomainSimulatorSafetyGate:
             action_params={},
         )
         proposal.safety_approved = True
+        proposal.safety_auth_token = issue_safety_token(proposal.action_id, proposal.action_type, proposal.target_entity)
         result = sim.execute_action(proposal)
         assert result.outcome == ExecutionOutcome.COMPLETED
 
@@ -85,6 +87,7 @@ class TestDomainSimulatorSafetyGate:
             action_params={"temperature": 22.0},
         )
         proposal.safety_approved = True
+        proposal.safety_auth_token = issue_safety_token(proposal.action_id, proposal.action_type, proposal.target_entity)
         result = sim.execute_action(proposal)
         assert result.outcome == ExecutionOutcome.COMPLETED
 
@@ -111,6 +114,7 @@ class TestDomainSimulatorSafetyGate:
             risk_tier=RiskTier.TIER_1,
         )
         proposal.safety_approved = True
+        proposal.safety_auth_token = issue_safety_token(proposal.action_id, proposal.action_type, proposal.target_entity)
         result = sim.execute_action(proposal)
         assert result.outcome == ExecutionOutcome.COMPLETED
 

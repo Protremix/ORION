@@ -30,6 +30,7 @@ from src.domains.vehicle.vehicle_entities import (
     VehicleEntity,
 )
 from src.domains.vehicle.vehicle_simulator import VehicleSimulation
+from src.contracts.contracts import issue_safety_token
 
 
 class TestVehicleDomain(unittest.TestCase):
@@ -262,6 +263,7 @@ class TestVehicleDomain(unittest.TestCase):
             action_parameters={"target_speed": 18.0},
         )
         proposal.safety_approved = True
+        proposal.safety_auth_token = issue_safety_token(proposal.action_id, proposal.action_type, proposal.target_entity)
         exec_res = sim2.propose_action(proposal)
         self.assertEqual(exec_res.outcome, ExecutionOutcome.COMPLETED.value)
         self.assertEqual(sim2.speed_controller.target_speed, 18.0)

@@ -26,6 +26,7 @@ from src.domains.home.home_entities import (
     SmokeDetector,
 )
 from src.domains.home.home_simulator import HomeSimulation
+from src.contracts.contracts import issue_safety_token
 
 
 class TestHomeDomain(unittest.TestCase):
@@ -236,7 +237,8 @@ class TestHomeDomain(unittest.TestCase):
             target_entity="hvac_ground",
             action_params={"temperature": 24.0},
         )
-        proposal.safety_approved = True  # Simulate Safety Gateway approval
+        proposal.safety_approved = True
+        proposal.safety_auth_token = issue_safety_token(proposal.action_id, proposal.action_type, proposal.target_entity)  # Simulate Safety Gateway approval
         self.assertEqual(proposal.action_type, "set_temperature")
         self.assertEqual(proposal.target_entity, "hvac_ground")
 
@@ -253,7 +255,8 @@ class TestHomeDomain(unittest.TestCase):
             target_entity="light_living",
             action_params={"brightness": 50},
         )
-        proposal.safety_approved = True  # Simulate Safety Gateway approval
+        proposal.safety_approved = True
+        proposal.safety_auth_token = issue_safety_token(proposal.action_id, proposal.action_type, proposal.target_entity)  # Simulate Safety Gateway approval
         result = self.sim.execute_action(proposal)
         self.assertEqual(result.outcome, ExecutionOutcome.COMPLETED)
         self.assertEqual(self.sim.light_living.brightness, 50)
@@ -266,7 +269,8 @@ class TestHomeDomain(unittest.TestCase):
             target_entity="lock_front",
             action_params={},
         )
-        proposal.safety_approved = True  # Simulate Safety Gateway approval
+        proposal.safety_approved = True
+        proposal.safety_auth_token = issue_safety_token(proposal.action_id, proposal.action_type, proposal.target_entity)  # Simulate Safety Gateway approval
         result = self.sim.execute_action(proposal)
         self.assertEqual(result.outcome, ExecutionOutcome.COMPLETED)
         self.assertFalse(self.sim.front_lock.is_locked)
@@ -277,7 +281,8 @@ class TestHomeDomain(unittest.TestCase):
             target_entity="lock_front",
             action_params={},
         )
-        proposal.safety_approved = True  # Simulate Safety Gateway approval
+        proposal.safety_approved = True
+        proposal.safety_auth_token = issue_safety_token(proposal.action_id, proposal.action_type, proposal.target_entity)  # Simulate Safety Gateway approval
         result = self.sim.execute_action(proposal)
         self.assertEqual(result.outcome, ExecutionOutcome.COMPLETED)
         self.assertTrue(self.sim.front_lock.is_locked)

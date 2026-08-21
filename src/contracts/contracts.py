@@ -19,11 +19,69 @@ Normative Contracts:
 
 import hashlib
 import hmac
+import hmac as _hmac
 import json
+import os
 import time
+import time as _time
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+
+# ============================================================================
+# Safety Authorization Token System (Luna Round 5, Change #3)
+# Replaces mutable boolean safety_approved with cryptographic HMAC-SHA256 token.
+# Only the Safety Gateway can issue valid tokens. Domain simulators verify
+# the token signature before executing physical actions.
+# ============================================================================
+
+
+def _get_safety_signing_key() -> str:
+    """Get the safety signing key from environment."""
+    key = os.environ.get("ORION_SAFETY_AUTH_KEY") or os.environ.get("ORION_AUDIT_KEY") or os.environ.get("ORION_POLICY_KEY")
+    if not key:
+        raise PermissionError("No ORION_SAFETY_AUTH_KEY or ORION_AUDIT_KEY configured — cannot issue/verify safety tokens (fail-closed)")
+    return key
+
+
+def issue_safety_token(action_id: str, action_type: str, target_entity: str, timestamp: float = None) -> str:
+    """Issue a signed safety authorization token.
+
+    Only the Safety Gateway should call this. The token is an HMAC-SHA256
+    over action_id:action_type:target_entity:timestamp using the safety signing key.
+    """
+    if timestamp is None:
+        timestamp = _time.time()
+    key = _get_safety_signing_key()
+    message = f"{action_id}:{action_type}:{target_entity}:{timestamp}"
+    sig = _hmac.new(key.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{timestamp}:{sig}"
+
+
+def verify_safety_token(token: str, action_id: str, action_type: str, target_entity: str) -> bool:
+    """Verify a safety authorization token.
+
+    Returns True only if:
+    1. Token is a non-empty string
+    2. Key is configured (fail-closed)
+    3. HMAC signature matches
+    4. action_id, action_type, target_entity all match
+    """
+    if not token or not isinstance(token, str):
+        return False
+    try:
+        key = _get_safety_signing_key()
+    except PermissionError:
+        return False  # Fail-closed: no key = no authorization
+    parts = token.split(":", 1)
+    if len(parts) != 2:
+        return False
+    timestamp_str, sig = parts
+    message = f"{action_id}:{action_type}:{target_entity}:{timestamp_str}"
+    expected_sig = _hmac.new(key.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()
+    return _hmac.compare_digest(sig, expected_sig)
+
+
 from typing import Any, Dict, List, Optional, Union
 
 # -----------------------------------------------------------------------------
@@ -447,7 +505,17 @@ class ActionProposal(BaseContract):
     preconditions: Dict[str, Any] = field(default_factory=dict)
     expected_postconditions: Dict[str, Any] = field(default_factory=dict)
     cognitive_confidence: float = 0.9
-    safety_approved: bool = False  # Set by Safety Gateway — simulators MUST reject if False for physical actions
+    safety_approved: bool = False  # DEPRECATED — use safety_auth_token for cryptographic verification
+    safety_auth_token: str = ""  # HMAC-SHA256 token issued by Safety Gateway (Change #3)
+
+    def has_valid_safety_auth(self) -> bool:
+        """Check if this proposal has a valid cryptographic safety authorization token."""
+        return verify_safety_token(
+            self.safety_auth_token,
+            self.action_id,
+            self.action_type,
+            self.target_entity,
+        )
 
     # Backward-compatible aliases
     @property
