@@ -171,7 +171,7 @@ class TestMemorySubsystem(unittest.TestCase):
         )
 
         # Write
-        written, val_res = self.store.write_memory(sem_mem)
+        written, val_res = self.store.write_memory(sem_mem, actor_permissions=["admin"])
         self.assertTrue(val_res.is_valid)
         self.assertIsNotNone(written)
 
@@ -198,7 +198,7 @@ class TestMemorySubsystem(unittest.TestCase):
         self.assertEqual(results[0][0].id, written.id)
 
         # Delete
-        deleted = self.store.delete_memory(written.id, soft=True)
+        deleted = self.store.delete_memory(written.id, soft=True, actor_permissions=self.permissions)
         self.assertTrue(deleted)
         self.assertIsNone(self.store.get_memory(written.id) if False else None)
 

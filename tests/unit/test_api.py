@@ -26,7 +26,19 @@ from src.api import (
     ToolDescriptor,
     ToolInterface,
 )
+from src.api.auth import AuthConfig, AuthManager
 from src.hal import ConnectionType, DeviceDescriptor, DeviceType, HardwareAbstractionLayer, SimulationAdapter
+
+
+def make_test_api(**kwargs):
+    """Create ORIONAPI with test auth configured."""
+    auth = AuthManager(AuthConfig(enabled=True, api_key="test_key"))
+    from src.api.permissions import PermissionChecker, PermissionLevel
+    PermissionChecker.clear()
+    PermissionChecker.register_agent_permissions("test_agent", [PermissionLevel.SUPERVISOR])
+    PermissionChecker.register_agent_permissions("supervisor", [PermissionLevel.SUPERVISOR])
+    return ORIONAPI(auth_manager=auth, **kwargs)
+
 
 # ============================================================================
 # ORION API Tests
@@ -40,55 +52,65 @@ class TestORIONAPI:
         assert api._memory is None
 
     def test_observe(self):
-        api = ORIONAPI()
-        resp = api.observe("sim", {"type": "grid"}, agent_id="test_agent")
+        api = make_test_api()
+        resp = api.observe("sim", {"type": "grid"}, agent_id="test_agent", token="test_key")
         assert resp.ok
         assert resp.data["source"] == "sim"
 
+    def test_observe_invalid_input_rejected(self):
+        """Invalid input (None source) should be rejected."""
+        api = make_test_api()
+        resp = api.observe(None, {"type": "grid"}, agent_id="test_agent", token="test_key")
+        assert not resp.ok
+        assert "Invalid" in resp.error
+
     def test_get_world_state_no_supervisor(self):
-        api = ORIONAPI()
-        resp = api.get_world_state(agent_id="test_agent")
+        api = make_test_api()
+        resp = api.get_world_state(agent_id="test_agent", token="test_key")
         assert resp.ok
         assert resp.data == {}
 
     def test_recall_no_memory(self):
-        api = ORIONAPI()
-        resp = api.recall("test query", agent_id="test_agent")
+        api = make_test_api()
+        resp = api.recall("test query", agent_id="test_agent", token="test_key")
         assert resp.ok
         assert resp.data == []
 
     def test_remember_no_memory(self):
-        api = ORIONAPI()
-        resp = api.remember({"event": "test"}, agent_id="test_agent")
+        api = make_test_api()
+        resp = api.remember({"event": "test"}, agent_id="test_agent", token="test_key")
         assert resp.ok
         assert resp.data["stored"] is False
 
     def test_plan(self):
-        api = ORIONAPI()
-        resp = api.plan("move robot to position", agent_id="test_agent")
+        api = make_test_api()
+        resp = api.plan("move robot to position", agent_id="test_agent", token="test_key")
         assert resp.ok
         assert resp.data["goal"] == "move robot to position"
 
     def test_simulate(self):
-        api = ORIONAPI()
-        resp = api.simulate({"command": "move", "x": 1.0}, agent_id="test_agent")
+        api = make_test_api()
+        resp = api.simulate({"command": "move", "x": 1.0}, agent_id="test_agent", token="test_key")
         assert resp.ok
         assert resp.data["result"] == "simulated"
 
     def test_execute_no_safety_rejected(self):
         """Without safety gateway, execute should reject hardware actions."""
-        api = ORIONAPI()
-        resp = api.execute({"device_id": "d1", "command_type": "move"}, simulate_first=False, agent_id="test_agent")
-        # Without safety gateway, the action should be rejected
+        api = make_test_api()
+        resp = api.execute({"device_id": "d1", "command_type": "move"}, simulate_first=False, agent_id="test_agent", token="test_key")
         assert resp.status == ORIONStatus.UNAUTHORIZED
 
     def test_emergency_stop_no_hal(self):
-        api = ORIONAPI()
-        resp = api.emergency_stop(agent_id="supervisor")
+        api = make_test_api()
+        resp = api.emergency_stop(agent_id="supervisor", token="test_key")
         assert resp.ok
         assert resp.data["estop"] == "no_hardware"
 
     def test_emergency_stop_with_hal(self):
+        from src.api.permissions import PermissionChecker, PermissionLevel
+        auth = AuthManager(AuthConfig(enabled=True, api_key="test_key"))
+        PermissionChecker.clear()
+        PermissionChecker.register_agent_permissions("supervisor", [PermissionLevel.SUPERVISOR])
         hal = HardwareAbstractionLayer(safety_gateway=None)
         desc = DeviceDescriptor(
             device_id="robot_01", name="Robot", manufacturer="ORION",
@@ -97,11 +119,30 @@ class TestORIONAPI:
         adapter = SimulationAdapter(desc)
         hal.register_adapter(adapter)
         hal.connect_device("robot_01")
-
-        api = ORIONAPI(hal=hal)
-        resp = api.emergency_stop(agent_id="supervisor")
+        api = ORIONAPI(hal=hal, auth_manager=auth)
+        resp = api.emergency_stop(agent_id="supervisor", token="test_key")
         assert resp.ok
         assert "robot_01" in resp.data
+
+    def test_debug_mode_does_not_bypass_auth(self):
+        """Debug mode must NOT bypass authentication."""
+        auth = AuthManager(AuthConfig(enabled=True, api_key="test_key", debug_mode=True))
+        # Even with debug_mode=True, authenticate must still check token
+        assert not auth.authenticate(None)  # No token -> denied
+        assert not auth.authenticate("wrong_key")  # Wrong key -> denied
+        assert auth.authenticate("test_key")  # Right key -> allowed
+
+    def test_physical_without_device_id_rejected(self):
+        """PHYSICAL action without device_id must be rejected."""
+        api = make_test_api()
+        resp = api.execute(
+            {"action_category": "PHYSICAL", "command": "move_robot"},
+            simulate_first=False,
+            agent_id="test_agent",
+            token="test_key",
+        )
+        assert not resp.ok
+        assert "device_id" in resp.error
 
 
 # ============================================================================
@@ -123,7 +164,7 @@ class TestAgentProtocol:
 
     def test_agent_task_defaults(self):
         task = AgentTask(agent_id="agent_01", task_type="research", description="Test")
-        assert task.task_id  # auto-generated UUID
+        assert task.task_id
         assert task.priority == 0
         assert task.input_data == {}
 
@@ -276,7 +317,7 @@ class TestORIONResponse:
 
     def test_response_has_request_id(self):
         resp = ORIONResponse(status=ORIONStatus.OK)
-        assert resp.request_id  # UUID generated
+        assert resp.request_id
 
     def test_unique_request_ids(self):
         resp1 = ORIONResponse(status=ORIONStatus.OK)

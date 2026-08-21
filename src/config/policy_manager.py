@@ -57,7 +57,7 @@ DEFAULT_FALLBACK_SAFE_POLICY_DICT: Dict[str, Any] = {
     "description": "Hardcoded Minimal Fallback Safe Policy for emergency degradation",
     "status": PolicyStatus.SIGNED.value,
     "signer": "SafetyAssuranceCore",
-    "signature": "fallback_safe_signature_verified",
+    "signature": "",  # Fallback policy has no signature — must be verified independently
     "created_at": 0,
     "is_last_known_safe": True,
     "safety_limits": {

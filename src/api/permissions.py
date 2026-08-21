@@ -9,6 +9,8 @@ License: Apache 2.0
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -29,7 +31,7 @@ SAFETY_CRITICAL_ACTIONS: Set[str] = {
 }
 
 
-def _is_safety_critical(action: Union[str, PermissionLevel]) -> bool:
+def _is_safety_critical(action: Union[str, "PermissionLevel"]) -> bool:
     """Check if an action or endpoint is safety-critical."""
     if isinstance(action, str):
         act_clean = action.strip().lower()
@@ -68,14 +70,20 @@ def _get_level_rank(level: Union[PermissionLevel, str]) -> int:
     return 0
 
 
+def _get_audit_key() -> Optional[bytes]:
+    """Get the HMAC key for permission integrity protection."""
+    key = os.environ.get("ORION_AUDIT_KEY") or os.environ.get("ORION_POLICY_KEY")
+    if not key:
+        return None
+    return key.encode("utf-8")
+
+
 class Permission:
     """
     Maps actions and endpoints to required permission levels.
     """
 
-    # Default action to permission level mappings
     DEFAULT_MAPPINGS: Dict[str, PermissionLevel] = {
-        # READ
         "query_memory": PermissionLevel.READ,
         "query_audit": PermissionLevel.READ,
         "get_world_state": PermissionLevel.READ,
@@ -83,8 +91,6 @@ class Permission:
         "health_check": PermissionLevel.READ,
         "observe": PermissionLevel.READ,
         "recall": PermissionLevel.READ,
-
-        # WRITE
         "store_memory": PermissionLevel.WRITE,
         "update_world_state": PermissionLevel.WRITE,
         "propose_action": PermissionLevel.WRITE,
@@ -93,14 +99,10 @@ class Permission:
         "plan": PermissionLevel.WRITE,
         "simulate": PermissionLevel.WRITE,
         "execute": PermissionLevel.WRITE,
-
-        # ADMIN
         "create_agent": PermissionLevel.ADMIN,
         "delete_agent": PermissionLevel.ADMIN,
         "modify_permissions": PermissionLevel.ADMIN,
         "deploy_model": PermissionLevel.ADMIN,
-
-        # SUPERVISOR
         "approve_action": PermissionLevel.SUPERVISOR,
         "override_safety": PermissionLevel.SUPERVISOR,
         "shutdown_system": PermissionLevel.SUPERVISOR,
@@ -110,28 +112,20 @@ class Permission:
         "revoke_lease": PermissionLevel.SUPERVISOR,
     }
 
-    # Endpoint to permission level mappings
     ENDPOINT_MAPPINGS: Dict[str, PermissionLevel] = {
-        # READ endpoints
         "/api/v1/memory/query": PermissionLevel.READ,
         "/api/v1/audit/query": PermissionLevel.READ,
         "/api/v1/world_state": PermissionLevel.READ,
         "/api/v1/belief_state": PermissionLevel.READ,
         "/api/v1/health": PermissionLevel.READ,
-
-        # WRITE endpoints
         "/api/v1/memory/store": PermissionLevel.WRITE,
         "/api/v1/world_state/update": PermissionLevel.WRITE,
         "/api/v1/action/propose": PermissionLevel.WRITE,
         "/api/v1/audit/log": PermissionLevel.WRITE,
-
-        # ADMIN endpoints
         "/api/v1/agents/create": PermissionLevel.ADMIN,
         "/api/v1/agents/delete": PermissionLevel.ADMIN,
         "/api/v1/permissions/modify": PermissionLevel.ADMIN,
         "/api/v1/models/deploy": PermissionLevel.ADMIN,
-
-        # SUPERVISOR endpoints
         "/api/v1/action/approve": PermissionLevel.SUPERVISOR,
         "/api/v1/safety/override": PermissionLevel.SUPERVISOR,
         "/api/v1/system/shutdown": PermissionLevel.SUPERVISOR,
@@ -188,10 +182,7 @@ class PermissionChecker:
     _registry: Dict[str, List[Union[PermissionLevel, str]]] = {}
 
     def __init__(self, registry: Optional[Dict[str, List[Union[PermissionLevel, str]]]] = None) -> None:
-        if registry is not None:
-            self._custom_registry = registry
-        else:
-            self._custom_registry = None
+        self._custom_registry = registry
 
     @property
     def registry(self) -> Dict[str, List[Union[PermissionLevel, str]]]:
@@ -229,7 +220,6 @@ class PermissionChecker:
             perms_list = []
 
         cls._registry[agent_id] = perms_list
-        # Auto-persist if storage is configured
         if cls._storage_path is not None:
             cls.save_to_storage()
 
@@ -258,7 +248,9 @@ class PermissionChecker:
         if action is None:
             return False
 
-        agent_perms = cls.get_agent_permissions(agent_id)
+        # Get the effective registry (instance or class)
+        checker = cls()
+        agent_perms = checker.registry.get(agent_id, [])
         if not agent_perms:
             return False
 
@@ -278,17 +270,45 @@ class PermissionChecker:
                 if required_level is None:
                     required_level = Permission.get_endpoint_level(action_name)
 
-        # Check explicit permissions and level hierarchy
-        for perm in agent_perms:
-            # 1. Exact string match for action name
-            if action_name and isinstance(perm, str) and perm.lower() == action_name.lower():
-                return True
+        # DENY BY DEFAULT: If action is not mapped, deny — even for wildcard
+        if required_level is None and action_name and action_name.upper() not in PermissionLevel.__members__:
+            # Unknown/unmapped action — check if it's a known endpoint
+            ep_level = Permission.get_endpoint_level(action_name)
+            if ep_level is None:
+                # Truly unmapped action — deny by default, no wildcard bypass
+                return False
+            required_level = ep_level
 
-            # 2. Wildcard or full supervisor permission (cannot grant safety-critical actions)
+        # Check permissions
+        for perm in agent_perms:
+            # 1. Exact string match — MUST still check required level
+            if action_name and isinstance(perm, str) and perm.lower() == action_name.lower():
+                if required_level is not None:
+                    # Safety-critical actions require SUPERVISOR level even for exact match
+                    if _is_safety_critical(action_name):
+                        agent_rank = _get_level_rank(perm)
+                        # Exact match only authorizes if the agent also has SUPERVISOR level
+                        # or if the perm IS the exact action AND agent has SUPERVISOR elsewhere
+                        # Actually: exact match means the agent was granted this specific action
+                        # But we must verify the agent has sufficient level for safety-critical
+                        # Check if agent has SUPERVISOR level in any perm
+                        has_supervisor = any(
+                            _get_level_rank(p) >= _LEVEL_RANKS[PermissionLevel.SUPERVISOR]
+                            for p in agent_perms
+                        )
+                        if has_supervisor:
+                            return True
+                        continue  # Deny — not sufficient level for safety-critical
+                    return True
+                return True  # No required level means it's a level enum match
+
+            # 2. Wildcard — ONLY for mapped non-safety-critical actions
             if isinstance(perm, str) and perm.strip() in ("*", "ALL"):
                 if (action and _is_safety_critical(action)) or (action_name and _is_safety_critical(action_name)):
-                    continue
-                return True
+                    continue  # Never authorize safety-critical via wildcard
+                if required_level is not None:
+                    return True  # Mapped non-safety-critical action
+                continue  # Unmapped action — deny
 
             # 3. Level hierarchy rank check
             if required_level is not None:
@@ -301,17 +321,11 @@ class PermissionChecker:
 
     @classmethod
     def check_api_access(cls, agent_id: Optional[str], endpoint: Optional[str]) -> bool:
-        """
-        Check if an agent has permission to access an API endpoint.
-
-        Returns True if authorized, False otherwise (deny by default).
-        """
+        """Check if an agent has permission to access an API endpoint."""
         if not agent_id or not isinstance(agent_id, str):
             return False
-
         if not endpoint or not isinstance(endpoint, str):
             return False
-
         return cls.check_permission(agent_id, endpoint)
 
     @classmethod
@@ -319,20 +333,26 @@ class PermissionChecker:
         """Clear all registered permissions (for testing)."""
         cls._registry.clear()
 
-    # --- Persistence ---
+    # --- Persistence with HMAC integrity ---
 
     _storage_path: Optional[str] = None
 
     @classmethod
     def set_storage_path(cls, path: str) -> None:
-        """Set the SQLite storage path for permission persistence."""
         cls._storage_path = path
-        # Auto-load on set
         cls.load_from_storage()
 
     @classmethod
+    def _compute_hmac(cls, data: str) -> str:
+        """Compute HMAC-SHA256 over data using audit key."""
+        key = _get_audit_key()
+        if key is None:
+            return ""  # No key — callers must check
+        return hmac.new(key, data.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    @classmethod
     def save_to_storage(cls) -> bool:
-        """Persist current permission registry to SQLite. Returns True on success."""
+        """Persist current permission registry to SQLite with HMAC integrity."""
         if cls._storage_path is None:
             return False
         try:
@@ -341,30 +361,38 @@ class PermissionChecker:
                 CREATE TABLE IF NOT EXISTS permissions (
                     agent_id TEXT PRIMARY KEY,
                     permissions_json TEXT NOT NULL,
-                    updated_at REAL NOT NULL
+                    updated_at REAL NOT NULL,
+                    hmac TEXT NOT NULL
                 )
             ''')
-            for agent_id, perms in cls._registry.items():
-                perms_serialized = json.dumps([
-                    p.value if isinstance(p, PermissionLevel) else str(p) for p in perms
-                ])
-                conn.execute(
-                    'INSERT OR REPLACE INTO permissions (agent_id, permissions_json, updated_at) VALUES (?, ?, ?)',
-                    (agent_id, perms_serialized, time.time())
-                )
-            # Also store audit log entry
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS permission_audit_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     event_type TEXT NOT NULL,
                     agent_id TEXT,
                     details TEXT,
-                    timestamp REAL NOT NULL
+                    timestamp REAL NOT NULL,
+                    hmac TEXT NOT NULL
                 )
             ''')
+            for agent_id, perms in cls._registry.items():
+                perms_serialized = json.dumps([
+                    p.value if isinstance(p, PermissionLevel) else str(p) for p in perms
+                ])
+                hmac_val = cls._compute_hmac(f"{agent_id}:{perms_serialized}")
+                if not hmac_val:
+                    logger.warning("No audit key set — cannot persist permissions with integrity")
+                    conn.close()
+                    return False
+                conn.execute(
+                    'INSERT OR REPLACE INTO permissions (agent_id, permissions_json, updated_at, hmac) VALUES (?, ?, ?, ?)',
+                    (agent_id, perms_serialized, time.time(), hmac_val)
+                )
+            details = json.dumps({'count': len(cls._registry)})
+            details_hmac = cls._compute_hmac(f"SAVE:{details}:{time.time()}")
             conn.execute(
-                'INSERT INTO permission_audit_log (event_type, agent_id, details, timestamp) VALUES (?, ?, ?, ?)',
-                ('SAVE', None, json.dumps({'count': len(cls._registry)}), time.time())
+                'INSERT INTO permission_audit_log (event_type, agent_id, details, timestamp, hmac) VALUES (?, ?, ?, ?, ?)',
+                ('SAVE', None, details, time.time(), details_hmac or "")
             )
             conn.commit()
             conn.close()
@@ -376,18 +404,25 @@ class PermissionChecker:
 
     @classmethod
     def load_from_storage(cls) -> bool:
-        """Load permission registry from SQLite. Returns True on success."""
+        """Load permission registry from SQLite with HMAC verification."""
         if cls._storage_path is None:
             return False
         if not os.path.exists(cls._storage_path):
             return False
         try:
             conn = sqlite3.connect(cls._storage_path)
-            cursor = conn.execute('SELECT agent_id, permissions_json FROM permissions')
+            cursor = conn.execute('SELECT agent_id, permissions_json, hmac FROM permissions')
             loaded = 0
-            for agent_id, perms_json in cursor:
+            for agent_id, perms_json, stored_hmac in cursor:
+                # Verify HMAC before trusting data
+                expected_hmac = cls._compute_hmac(f"{agent_id}:{perms_json}")
+                if expected_hmac and stored_hmac:
+                    if not hmac.compare_digest(expected_hmac, stored_hmac):
+                        logger.error(f"HMAC mismatch for agent {agent_id} — potential tampering! Skipping.")
+                        continue
+                elif not expected_hmac:
+                    logger.warning("No audit key — cannot verify permission integrity on load")
                 perms_list = json.loads(perms_json)
-                # Reconstruct PermissionLevel objects where possible
                 restored = []
                 for p in perms_list:
                     if p in PermissionLevel.__members__:

@@ -184,7 +184,7 @@ class TestGPTIntegration(unittest.TestCase):
             embedding=embedding1,
             confidence=0.95,
         )
-        stored, val_result = store.write_memory(memory)
+        stored, val_result = store.write_memory(memory, actor_permissions=["admin"])
         self.assertIsNotNone(stored, f"Memory write must succeed: {val_result.errors if not val_result.is_valid else ''}")
 
         # Search for a similar memory

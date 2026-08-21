@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -251,12 +252,25 @@ class RateLimitStage:
         self._last_command_map: Dict[str, Tuple[Dict[str, float], float]] = {}
 
     def verify(self, command: ActuatorCommand) -> StageResult:
-        if command.is_emergency or command.command_type in ("zero_command", "emergency_stop", "stop", "safe_state"):
+        # Emergency stops (zero_command, emergency_stop, stop, safe_state) bypass rate check
+        # But is_emergency flag alone is NOT sufficient — must also be a stop-type command
+        if command.command_type in ("zero_command", "emergency_stop", "stop", "safe_state"):
             return StageResult(
                 stage=VerificationStage.RATE_LIMIT,
                 passed=True,
-                reason="Emergency / zero command bypasses rate limit check"
+                reason="Emergency stop command bypasses rate limit check"
             )
+        # is_emergency flag alone does NOT bypass rate limiting for non-stop commands
+
+        # NaN check for all parameters
+        for param_name, val in command.parameters.items():
+            if not isinstance(val, (int, float)) or not math.isfinite(val):
+                return StageResult(
+                    stage=VerificationStage.RATE_LIMIT,
+                    passed=False,
+                    reason=f"Parameter '{param_name}' has non-finite value {val} — rejected",
+                    details={"parameter": param_name, "value": val}
+                )
 
         if not command.parameters:
             return StageResult(
@@ -377,9 +391,8 @@ class AuthorityCheckStage:
 
     def verify(self, command: ActuatorCommand) -> StageResult:
         auth = command.issuing_authority
-        is_auth_ok = auth in self.authorized_authorities or any(
-            auth.startswith(prefix) for prefix in ("SafetyEnforcement", "SEP", "Emergency", "Manual")
-        )
+        # Exact match only — no prefix matching
+        is_auth_ok = auth in self.authorized_authorities
         if not is_auth_ok:
             return StageResult(
                 stage=VerificationStage.AUTHORITY_CHECK,
@@ -433,6 +446,7 @@ class AuditLogStage:
         self._last_hash: str = "0" * 64
 
     def record(self, command: ActuatorCommand, result: VerificationResult) -> AuditLogEntry:
+        import os as _os
         seq = len(self._entries) + 1
         prev_hash = self._last_hash
         entry_id = str(uuid.uuid4())
@@ -452,8 +466,16 @@ class AuditLogStage:
         }
 
         serialized = json.dumps(entry_data, sort_keys=True)
-        entry_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+        # HMAC-SHA256 for cryptographic integrity
+        audit_key = _os.environ.get("ORION_AUDIT_KEY") or _os.environ.get("ORION_POLICY_KEY")
+        if audit_key:
+            import hmac as _hmac
+            entry_hash = _hmac.new(audit_key.encode(), serialized.encode("utf-8"), hashlib.sha256).hexdigest()
+        else:
+            # No key — use plain SHA-256 (still tamper-evident within process)
+            entry_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
+        # Create immutable entry
         entry = AuditLogEntry(
             entry_id=entry_id,
             sequence_number=seq,
@@ -479,12 +501,16 @@ class AuditLogStage:
                 elif hasattr(self.external_storage, "write"):
                     self.external_storage.write(entry)
             except Exception as e:
-                logger.warning(f"Failed to record audit entry to external storage: {e}")
+                logger.error(f"Failed to record audit entry to external storage: {e}")
+                # Fail-closed: if external storage fails, the command result still records
+                # but the error is logged at ERROR level, not warning
 
         return entry
 
     def get_entries(self) -> List[AuditLogEntry]:
-        return list(self._entries)
+        """Return deep copies to prevent mutation of audit records."""
+        import copy
+        return [copy.deepcopy(e) for e in self._entries]
 
     def verify_hash_chain(self) -> bool:
         """Verify the cryptographic hash chain integrity across all logged entries."""
@@ -492,8 +518,13 @@ class AuditLogStage:
             return True
 
         current_prev_hash = "0" * 64
+        expected_seq = 1
 
         for entry in self._entries:
+            # Check sequence numbers are contiguous starting from 1
+            if entry.sequence_number != expected_seq:
+                return False
+
             if entry.previous_hash != current_prev_hash:
                 return False
 
@@ -512,12 +543,20 @@ class AuditLogStage:
             }
 
             serialized = json.dumps(entry_data, sort_keys=True)
-            expected_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+            # Use HMAC if key available, otherwise plain SHA-256
+            import os as _os
+            audit_key = _os.environ.get("ORION_AUDIT_KEY") or _os.environ.get("ORION_POLICY_KEY")
+            if audit_key:
+                import hmac as _hmac
+                expected_hash = _hmac.new(audit_key.encode(), serialized.encode("utf-8"), hashlib.sha256).hexdigest()
+            else:
+                expected_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
             if entry.hash != expected_hash:
                 return False
 
             current_prev_hash = entry.hash
+            expected_seq += 1
 
         return True
 
@@ -575,6 +614,8 @@ class ActuatorVerificationPipeline:
             actuator_id = raw_dict.get("actuator_id", "default_actuator")
             cmd_domain = raw_dict.get("domain", domain)
             params = {k: float(v) for k, v in raw_dict.items() if isinstance(v, (int, float)) and not k.endswith(("_min", "_max", "_limit"))}
+            # Validate all parameters are finite (reject NaN/Inf)
+            params = {k: v for k, v in params.items() if math.isfinite(v)}
             cmd = ActuatorCommand(
                 actuator_id=actuator_id,
                 domain=cmd_domain,
@@ -592,6 +633,8 @@ class ActuatorVerificationPipeline:
                 raw_dict = command
                 cmd_domain = raw_dict.get("domain", domain)
                 params = {k: float(v) for k, v in raw_dict.items() if isinstance(v, (int, float)) and not k.endswith(("_min", "_max", "_limit"))}
+                # Validate all parameters are finite (reject NaN/Inf)
+                params = {k: v for k, v in params.items() if math.isfinite(v)}
                 cmd = ActuatorCommand(
                     actuator_id=actuator_id,
                     domain=cmd_domain,
@@ -621,45 +664,69 @@ class ActuatorVerificationPipeline:
             rejection_reason = f"System in {power_state} state"
             verified_params = {k: 0.0 for k in cmd.parameters}
 
-        # Stage 1: CBFFilter
+        # Stage 1: CBFFilter — fail-closed on exception
         if pipeline_passed:
-            cbf_res = self.cbf_stage.verify(cmd, current_state)
-            stage_results[VerificationStage.CBF_FILTER] = cbf_res
-            if not cbf_res.passed:
+            try:
+                cbf_res = self.cbf_stage.verify(cmd, current_state)
+                stage_results[VerificationStage.CBF_FILTER] = cbf_res
+                if not cbf_res.passed:
+                    pipeline_passed = False
+                    rejected_stage = VerificationStage.CBF_FILTER
+                    rejection_reason = cbf_res.reason
+                else:
+                    if "filtered_parameters" in cbf_res.details and cbf_res.details["filtered_parameters"]:
+                        verified_params = cbf_res.details["filtered_parameters"]
+                        cmd.parameters = dict(verified_params)
+            except Exception as e:
+                logger.error(f"CBF Filter exception: {e}")
                 pipeline_passed = False
                 rejected_stage = VerificationStage.CBF_FILTER
-                rejection_reason = cbf_res.reason
-            else:
-                if "filtered_parameters" in cbf_res.details and cbf_res.details["filtered_parameters"]:
-                    verified_params = cbf_res.details["filtered_parameters"]
-                    cmd.parameters = dict(verified_params)
+                rejection_reason = f"CBF Filter exception (fail-closed): {e}"
 
-        # Stage 2: RateLimit
+        # Stage 2: RateLimit — fail-closed on exception
         if pipeline_passed:
-            rate_res = self.rate_limit_stage.verify(cmd)
-            stage_results[VerificationStage.RATE_LIMIT] = rate_res
-            if not rate_res.passed:
+            try:
+                rate_res = self.rate_limit_stage.verify(cmd)
+                stage_results[VerificationStage.RATE_LIMIT] = rate_res
+                if not rate_res.passed:
+                    pipeline_passed = False
+                    rejected_stage = VerificationStage.RATE_LIMIT
+                    rejection_reason = rate_res.reason
+            except Exception as e:
+                logger.error(f"Rate limit exception: {e}")
                 pipeline_passed = False
                 rejected_stage = VerificationStage.RATE_LIMIT
-                rejection_reason = rate_res.reason
+                rejection_reason = f"Rate limit exception (fail-closed): {e}"
 
-        # Stage 3: RangeLimit
+        # Stage 3: RangeLimit — fail-closed on exception
         if pipeline_passed:
-            range_res = self.range_limit_stage.verify(cmd)
-            stage_results[VerificationStage.RANGE_LIMIT] = range_res
-            if not range_res.passed:
+            try:
+                range_res = self.range_limit_stage.verify(cmd)
+                stage_results[VerificationStage.RANGE_LIMIT] = range_res
+                if not range_res.passed:
+                    pipeline_passed = False
+                    rejected_stage = VerificationStage.RANGE_LIMIT
+                    rejection_reason = range_res.reason
+            except Exception as e:
+                logger.error(f"Range limit exception: {e}")
                 pipeline_passed = False
                 rejected_stage = VerificationStage.RANGE_LIMIT
-                rejection_reason = range_res.reason
+                rejection_reason = f"Range limit exception (fail-closed): {e}"
 
-        # Stage 4: AuthorityCheck
+        # Stage 4: AuthorityCheck — fail-closed on exception
         if pipeline_passed:
-            auth_res = self.authority_stage.verify(cmd)
-            stage_results[VerificationStage.AUTHORITY_CHECK] = auth_res
-            if not auth_res.passed:
+            try:
+                auth_res = self.authority_stage.verify(cmd)
+                stage_results[VerificationStage.AUTHORITY_CHECK] = auth_res
+                if not auth_res.passed:
+                    pipeline_passed = False
+                    rejected_stage = VerificationStage.AUTHORITY_CHECK
+                    rejection_reason = auth_res.reason
+            except Exception as e:
+                logger.error(f"Authority check exception: {e}")
                 pipeline_passed = False
                 rejected_stage = VerificationStage.AUTHORITY_CHECK
-                rejection_reason = auth_res.reason
+                rejection_reason = f"Authority check exception (fail-closed): {e}"
 
         # Record state for rate tracking if all stages passed
         if pipeline_passed:

@@ -102,10 +102,10 @@ class TestRateLimiting:
         assert auth.check_rate_limit("key") is False
 
     def test_rate_limit_disabled(self):
-        """Rate limiting disabled when auth is off."""
+        """Rate limiting fail-closed when auth is off."""
         auth = AuthManager(AuthConfig(enabled=False))
-        for _ in range(100):
-            assert auth.check_rate_limit() is True
+        # Auth disabled = fail-closed, rate limit denied
+        assert auth.check_rate_limit() is False
 
     def test_rate_limit_window_expiry(self):
         """Rate limit resets after window expires."""
@@ -145,12 +145,19 @@ class TestAPIWithAuth:
         result = api.observe("test", {"q": 1}, agent_id="test")
         assert result.ok is False
 
-    def test_api_works_in_debug_mode(self):
-        """API works when debug mode is enabled (testing only)."""
+    def test_api_debug_mode_does_not_bypass_auth(self):
+        """Debug mode must NOT bypass authentication."""
         from src.api import ORIONAPI, ORIONStatus
+        from src.api.permissions import PermissionChecker, PermissionLevel
+        PermissionChecker.clear()
+        PermissionChecker.register_agent_permissions("test", [PermissionLevel.SUPERVISOR])
         auth = AuthManager(AuthConfig(enabled=True, api_key="test", debug_mode=True))
         api = ORIONAPI(auth_manager=auth)
-        result = api.observe("test", {"q": 1})
+        # Without token, even debug mode must deny
+        result = api.observe("test", {"q": 1}, agent_id="test")
+        assert result.ok is False
+        # With valid token, works normally
+        result = api.observe("test", {"q": 1}, agent_id="test", token="test")
         assert result.ok is True
 
     def test_api_rejects_unauthorized(self):

@@ -126,9 +126,6 @@ class ORIONAPI:
             return ORIONResponse(status=ORIONStatus.UNAUTHORIZED, error="Invalid or missing API key")
         if not self._auth.check_rate_limit(token):
             return ORIONResponse(status=ORIONStatus.RATE_LIMITED, error="Rate limit exceeded")
-        # In debug mode, skip permission checks (for testing only)
-        if self._auth._config.debug_mode:
-            return ORIONResponse(status=ORIONStatus.OK)
         if not agent_id:
             return ORIONResponse(
                 status=ORIONStatus.UNAUTHORIZED,
@@ -154,6 +151,8 @@ class ORIONAPI:
         auth = self._check_auth(token, agent_id=agent_id, action="observe")
         if not auth.ok:
             return auth
+        if not validate_input(source) or not validate_api_payload(query):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid input parameters")
         # TODO: Connect to perception plane
         return ORIONResponse(status=ORIONStatus.OK, data={"source": source, "query": query})
 
@@ -189,6 +188,8 @@ class ORIONAPI:
         auth = self._check_auth(token, agent_id=agent_id, action="recall")
         if not auth.ok:
             return auth
+        if not validate_input(query):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid query parameter")
         if self._memory:
             try:
                 results = self._memory.search(query, memory_type=memory_type, limit=limit)
@@ -209,6 +210,8 @@ class ORIONAPI:
         auth = self._check_auth(token, agent_id=agent_id, action="remember")
         if not auth.ok:
             return auth
+        if not validate_input(content):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid content parameter")
         if self._memory:
             try:
                 entry = self._memory.store(content, memory_type=memory_type, metadata=metadata)
@@ -229,6 +232,10 @@ class ORIONAPI:
         auth = self._check_auth(token, agent_id=agent_id, action="plan")
         if not auth.ok:
             return auth
+        if not validate_input(goal) or not isinstance(goal, str):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid goal parameter")
+        if constraints is not None and not validate_api_payload(constraints):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid constraints parameter")
         # TODO: Connect to planning plane
         return ORIONResponse(
             status=ORIONStatus.OK,
@@ -247,6 +254,8 @@ class ORIONAPI:
         auth = self._check_auth(token, agent_id=agent_id, action="simulate")
         if not auth.ok:
             return auth
+        if not validate_api_payload(action):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid action parameter")
         # TODO: Connect to simulation plane
         return ORIONResponse(
             status=ORIONStatus.OK,
@@ -266,6 +275,9 @@ class ORIONAPI:
         auth = self._check_auth(token, agent_id=agent_id, action="execute")
         if not auth.ok:
             return auth
+
+        if not validate_api_payload(action):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid action payload")
 
         # Action category enforcement — validate and normalize action_category BEFORE simulation
         raw_cat = action.get("action_category", "DIGITAL")
@@ -291,6 +303,24 @@ class ORIONAPI:
                 status=ORIONStatus.UNAUTHORIZED,
                 error=f"DECISION_REQUIRED: {norm_cat} action requires Founder approval",
             )
+
+        # PHYSICAL actions MUST go through Safety Gateway and HAL
+        if norm_cat == "PHYSICAL":
+            if not action.get("device_id"):
+                return ORIONResponse(
+                    status=ORIONStatus.UNAUTHORIZED,
+                    error="PHYSICAL action requires device_id — cannot execute without hardware safety enforcement",
+                )
+            if not self._safety:
+                return ORIONResponse(
+                    status=ORIONStatus.UNAUTHORIZED,
+                    error="No Safety Gateway configured — PHYSICAL actions denied by default",
+                )
+            if not self._hal:
+                return ORIONResponse(
+                    status=ORIONStatus.UNAUTHORIZED,
+                    error="No HAL configured — PHYSICAL actions denied by default",
+                )
 
         if simulate_first:
             sim = self.simulate(action, domain, token=token, agent_id=agent_id)
@@ -333,7 +363,8 @@ class ORIONAPI:
                 error=resp.error,
             )
 
-        return ORIONResponse(status=ORIONStatus.OK, data={"executed": True})
+        # Non-hardware DIGITAL action — log and confirm
+        return ORIONResponse(status=ORIONStatus.OK, data={"executed": True, "category": norm_cat})
 
     # --- Emergency ---
     def emergency_stop(

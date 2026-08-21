@@ -6,6 +6,8 @@ import tempfile
 
 import pytest
 
+os.environ.setdefault('ORION_AUDIT_KEY', 'test_audit_key_for_permissions')
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.api.permissions import PermissionChecker, PermissionLevel

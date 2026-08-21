@@ -31,7 +31,7 @@ class AuthConfig:
     enabled: bool = True
     api_key: Optional[str] = None
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
-    debug_mode: bool = False
+    debug_mode: bool = False  # Deprecated — no longer bypasses auth
 
 
 class AuthManager:
@@ -45,20 +45,17 @@ class AuthManager:
     def __init__(self, config: Optional[AuthConfig] = None) -> None:
         if config is None:
             env_key = os.environ.get("ORION_API_KEY")
-            debug_mode = os.environ.get("ORION_DEBUG_MODE", "").lower() in ("1", "true", "yes")
             config = AuthConfig(
                 enabled=True,
                 api_key=env_key,
-                debug_mode=debug_mode,
+                debug_mode=False,
             )
         self._config = config
         self._request_times: dict[str, Deque[float]] = {}
 
     def authenticate(self, token: Optional[str]) -> bool:
         """Verify a bearer token. Returns True if authenticated."""
-        if self._config.debug_mode:
-            return True  # Explicit debug/test mode allows open access
-
+        # No debug mode bypass — always require valid credentials
         if not self._config.enabled:
             return False  # Fail-closed
 
@@ -72,8 +69,8 @@ class AuthManager:
 
     def check_rate_limit(self, token: Optional[str] = None) -> bool:
         """Check if request is within rate limit. Returns True if allowed."""
-        if self._config.debug_mode or not self._config.enabled:
-            return True
+        if not self._config.enabled:
+            return False  # Fail-closed
 
         key = token or "anonymous"
         now = time.time()

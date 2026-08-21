@@ -440,7 +440,7 @@ class VehicleSimulation:
                 should_trigger, aeb_decel = self.aeb_controller.evaluate(
                     current_speed=self.ego_vehicle.speed, obstacle_distance=front_dist
                 )
-                if should_trigger and aeb_decel > 0:
+                if should_trigger and abs(aeb_decel) > 0:
                     return ActionExecutionResult(
                         lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
                         execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,

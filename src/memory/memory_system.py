@@ -944,8 +944,9 @@ class MemoryStore:
         Always validates — no bypass allowed.
         """
         # Permission check if actor_permissions provided
-        if actor_permissions is not None:
-            if not self.verify_writer_permission(actor_permissions, entry.memory_type):
+        if actor_permissions is None:
+            raise PermissionError("actor_permissions is required for memory write — deny by default")
+        if not self.verify_writer_permission(actor_permissions, entry.memory_type):
                 raise PermissionError(f"Insufficient permissions to write {entry.memory_type} memory")
 
         # Ensure embedding for semantic memory or if summary is provided
@@ -1042,10 +1043,12 @@ class MemoryStore:
             text_to_embed = updated_entry.summary if updated_entry.summary else json.dumps(updated_entry.content)
             updated_entry.embedding = self.embedding_service.generate_embedding(text_to_embed)
 
-        return self.write_memory(updated_entry)
+        return self.write_memory(updated_entry, actor_permissions=writer_permissions)
 
     def delete_memory(self, memory_id: str, soft: bool = True, actor_permissions: Optional[List[str]] = None) -> bool:
-        """Deletes a memory entry (soft delete by default, or hard removal)."""
+        """Deletes a memory entry (soft delete by default, or hard removal). Requires authorization."""
+        if actor_permissions is None:
+            raise PermissionError("actor_permissions is required for memory deletion — deny by default")
         existing = self.get_memory(memory_id)
         if not existing:
             return False
