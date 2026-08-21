@@ -113,7 +113,7 @@ class TestGPT4oVisionAdapter:
             "choices": [{"message": {"content": "A red car on a highway"}, "finish_reason": "stop"}],
         }
         adapter = GPT4oVisionAdapter(api_key="test-key")
-        resp = adapter.process(VisionRequest(image_url="http://example.com/img.png", task="describe"))
+        resp = adapter.process(VisionRequest(image_url="https://example.com/img.png", task="describe"))
         assert "red car" in resp.description
         assert resp.latency_ms > 0
 
@@ -123,14 +123,14 @@ class TestGPT4oVisionAdapter:
             "choices": [{"message": {"content": "There are 3 people"}, "finish_reason": "stop"}],
         }
         adapter = GPT4oVisionAdapter(api_key="test-key")
-        resp = adapter.process(VisionRequest(image_url="http://example.com/img.png", task="answer", prompt="How many people?"))
+        resp = adapter.process(VisionRequest(image_url="https://example.com/img.png", task="answer", prompt="How many people?"))
         assert resp.answer == "There are 3 people"
 
     @patch('src.models.gpt4o_adapters._openai_request')
     def test_process_error(self, mock_api):
         mock_api.side_effect = Exception("Vision API error")
         adapter = GPT4oVisionAdapter(api_key="test-key")
-        resp = adapter.process(VisionRequest(image_url="http://example.com/img.png"))
+        resp = adapter.process(VisionRequest(image_url="https://example.com/img.png"))
         assert resp.description == ""
         assert "error" in resp.metadata
 

@@ -89,12 +89,13 @@ def _openai_request(endpoint: str, payload: dict, api_key: Optional[str] = None,
     raise RuntimeError(f"OpenAI API request failed after {max_retries} retries: {last_error}")
 
 
-def validate_image_path(path: str) -> str:
+def validate_image_path(path: str) -> bytes:
     """
-    Validate an image file path against path traversal and directory boundary restrictions.
+    Validate an image file path against path traversal and directory boundary restrictions
+    and immediately read the file contents to prevent TOCTOU (time-of-check-time-of-use) attacks.
 
     Allowed base directory is controlled by ORION_VISION_DATA_DIR env var (defaults to 'data/vision/').
-    Returns the resolved absolute path as a string if safe, or raises ValueError if unsafe.
+    Returns the file contents as bytes if safe, or raises ValueError if unsafe.
     """
     if not path or not isinstance(path, str):
         raise ValueError("Image path must be a non-empty string")
@@ -121,7 +122,27 @@ def validate_image_path(path: str) -> str:
     if not resolved.is_relative_to(base_dir):
         raise ValueError(f"Access denied: path '{path}' escapes allowed vision directory '{base_dir}'")
 
-    return str(resolved)
+    # Open immediately after validation to prevent TOCTOU symlink race
+    # Use os.open with O_NOFOLLOW to reject symlinks at the final component
+    import errno
+    try:
+        fd = os.open(str(resolved), os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError as e:
+        if e.errno == errno.ELOOP:
+            raise ValueError(f"Access denied: path '{path}' is a symlink (rejected by O_NOFOLLOW)") from e
+        raise ValueError(f"Cannot open image file '{path}': {e}") from e
+
+    try:
+        with os.fdopen(fd, "rb") as f:
+            data = f.read()
+    except Exception as e:
+        raise ValueError(f"Cannot read image file '{path}': {e}") from e
+
+    # Re-verify the resolved path is still within base_dir after open
+    if not Path(os.path.realpath(str(resolved))).is_relative_to(base_dir):
+        raise ValueError(f"Access denied: path '{path}' was modified after validation")
+
+    return data
 
 
 # ============================================================================
@@ -225,14 +246,18 @@ class GPT4oVisionAdapter(VisionModelAdapter):
     def _prepare_image(self, request: VisionRequest) -> str:
         """Convert image to base64 data URL or return URL."""
         if request.image_url:
-            return request.image_url
+            # Validate URL scheme — only allow https:// and data: URLs
+            url = request.image_url
+            if not (url.startswith("https://") or url.startswith("data:image/")):
+                raise ValueError("Unsafe image URL scheme rejected: only https:// and data:image/ allowed")
+            return url
         elif request.image_data:
             b64 = base64.b64encode(request.image_data).decode()
             return f"data:image/png;base64,{b64}"
         elif request.image_path:
-            safe_path = validate_image_path(request.image_path)
-            with open(safe_path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
+            # validate_image_path returns bytes directly (TOCTOU-safe)
+            image_data = validate_image_path(request.image_path)
+            b64 = base64.b64encode(image_data).decode()
             return f"data:image/png;base64,{b64}"
         raise ValueError("No image provided in VisionRequest")
 

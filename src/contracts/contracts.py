@@ -447,6 +447,7 @@ class ActionProposal(BaseContract):
     preconditions: Dict[str, Any] = field(default_factory=dict)
     expected_postconditions: Dict[str, Any] = field(default_factory=dict)
     cognitive_confidence: float = 0.9
+    safety_approved: bool = False  # Set by Safety Gateway — simulators MUST reject if False for physical actions
 
     # Backward-compatible aliases
     @property

@@ -173,7 +173,7 @@ class TaskStateManager:
     # ------------------------------------------------------------------
 
     def _save(self) -> bool:
-        """Save complete state to disk."""
+        """Save complete state to disk with HMAC integrity protection."""
         state = SystemState(
             tasks={tid: t.to_dict() for tid, t in self._tasks.items()},
             checkpoints={cid: c.to_dict() for cid, c in self._checkpoints.items()},
@@ -183,22 +183,65 @@ class TaskStateManager:
             pending_decisions=self._pending_decisions,
         )
         try:
+            state_json = json.dumps(state.to_dict(), indent=2, sort_keys=True)
+
+            # Compute HMAC-SHA256 for state integrity
+            import hashlib as _hl
+            import hmac as _hmac_mod
+            import os as _os
+            state_key = _os.environ.get("ORION_STATE_HMAC_KEY", "")
+            if not state_key:
+                raise PermissionError(
+                    "ORION_STATE_HMAC_KEY not configured — cannot sign task state (fail-closed)"
+                )
+            state_hmac = _hmac_mod.new(
+                state_key.encode(), state_json.encode(), _hl.sha256
+            ).hexdigest()
+
+            # Write state with embedded HMAC
+            payload = {"state": state.to_dict(), "hmac": state_hmac}
             with open(self._storage_path, "w") as f:
-                json.dump(state.to_dict(), f, indent=2)
-            logger.debug(f"State saved: {len(self._tasks)} tasks, {len(self._checkpoints)} checkpoints")
+                json.dump(payload, f, indent=2)
+            logger.debug(f"State saved with HMAC: {len(self._tasks)} tasks, {len(self._checkpoints)} checkpoints")
             return True
         except Exception as e:
             logger.error(f"Failed to save state: {e}")
             return False
 
     def _load(self) -> bool:
-        """Load state from disk."""
+        """Load state from disk with HMAC integrity verification."""
         if not os.path.exists(self._storage_path):
             logger.info("No existing state file, starting fresh")
             return True
         try:
             with open(self._storage_path, "r") as f:
-                data = json.load(f)
+                payload = json.load(f)
+
+            # Verify HMAC integrity
+            import hashlib as _hl
+            import hmac as _hmac_mod
+            import os as _os
+            state_key = _os.environ.get("ORION_STATE_HMAC_KEY", "")
+            if not state_key:
+                raise PermissionError(
+                    "ORION_STATE_HMAC_KEY not configured — cannot verify task state integrity (fail-closed)"
+                )
+
+            if "hmac" not in payload or "state" not in payload:
+                raise ValueError("State file missing HMAC signature or state data — rejecting (fail-closed)")
+
+            stored_hmac = payload["hmac"]
+            state_data = payload["state"]
+            state_json = json.dumps(state_data, indent=2, sort_keys=True)
+            expected_hmac = _hmac_mod.new(
+                state_key.encode(), state_json.encode(), _hl.sha256
+            ).hexdigest()
+
+            if not _hmac_mod.compare_digest(stored_hmac, expected_hmac):
+                raise ValueError("State HMAC verification failed — state file may be tampered (fail-closed)")
+
+            # HMAC verified — load state
+            data = state_data
             self._tasks = {tid: Task.from_dict(td) for tid, td in data.get("tasks", {}).items()}
             self._checkpoints = {cid: Checkpoint.from_dict(cd) for cid, cd in data.get("checkpoints", {}).items()}
             self._current_task_id = data.get("current_task_id")
@@ -210,7 +253,7 @@ class TaskStateManager:
             self._task_counter = len(self._tasks)
             self._checkpoint_counter = len(self._checkpoints)
 
-            logger.info(f"State loaded: {len(self._tasks)} tasks, {len(self._checkpoints)} checkpoints")
+            logger.info(f"State loaded (HMAC verified): {len(self._tasks)} tasks, {len(self._checkpoints)} checkpoints")
             if self._stop_reason:
                 logger.warning(f"Previous stop reason: {self._stop_reason}")
             if self._pending_decisions:

@@ -166,7 +166,17 @@ class ActionArbitration:
         self._lock = threading.RLock()
         self._lease_locks: Dict[str, threading.Lock] = {}
         self.state_machine = state_machine or AuthorityTransitionStateMachine()
-        self._secret_key = secret_key or os.urandom(32)
+        # Use env-based signing key for lease integrity — never ephemeral os.urandom
+        env_key = os.environ.get("ORION_LEASE_SIGNING_KEY", "")
+        if secret_key:
+            self._secret_key = secret_key
+        elif env_key:
+            self._secret_key = env_key.encode("utf-8")
+        else:
+            raise RuntimeError(
+                "ORION_LEASE_SIGNING_KEY environment variable not set — "
+                "lease signing key is required for action arbitration security"
+            )
 
         self._active_leases: Dict[str, ActionAuthorizationLease] = {}
         self._used_nonces: Set[str] = set()

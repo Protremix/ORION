@@ -320,6 +320,18 @@ class HomeSimulation:
 
     def execute_action(self, proposal: ActionProposal) -> ActionExecutionResult:
         """Execute an action proposal."""
+        # Safety Gateway enforcement: reject actions not approved by Safety Gateway
+        # Physical actions (lock/unlock/trigger_evacuation) MUST have safety_approved=True
+        physical_actions = {"lock", "unlock", "trigger_evacuation", "clear_emergency"}
+        if proposal.action_type in physical_actions and not getattr(proposal, "safety_approved", False):
+            return ActionExecutionResult(
+                outcome=ExecutionOutcome.REJECTED,
+                execution_stage=ExecutionStage.COMPLETED,
+                deviation_reason=f"Safety Gateway rejection: action '{proposal.action_type}' requires safety_approved=True (direct simulator access denied)",
+                producer="HomeSimulation",
+                consumer="ActionArbitration",
+            )
+
         # Safety check: block non-emergency actions during emergency state
         if self.system_status == "EMERGENCY" and proposal.action_type not in ("trigger_evacuation", "clear_emergency"):
             return ActionExecutionResult(

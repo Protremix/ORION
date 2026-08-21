@@ -187,6 +187,7 @@ class TestDroneDomain(unittest.TestCase):
         self.assertEqual(proposal.action_type, "takeoff")
         self.assertEqual(proposal.target_entity, "drone_1")
 
+        proposal.safety_approved = True  # Simulate Safety Gateway approval
         result = self.sim.execute_action(proposal)
         self.assertEqual(result.outcome, ExecutionOutcome.COMPLETED)
         self.assertEqual(self.sim.drone.state, "FLYING")

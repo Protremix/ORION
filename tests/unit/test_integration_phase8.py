@@ -82,7 +82,7 @@ class TestGPT4oWithSimulators:
 
         adapter = GPT4oVisionAdapter(api_key="test-key")
         resp = adapter.process(VisionRequest(
-            image_url="http://sim/orion/vehicle/frame_001.png",
+            image_url="https://sim/orion/vehicle/frame_001.png",
             task="describe",
             prompt="Describe the traffic situation for autonomous driving",
         ))

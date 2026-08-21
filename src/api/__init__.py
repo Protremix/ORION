@@ -329,24 +329,45 @@ class ORIONAPI:
         if not validate_domain_param(domain):
             return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid domain — must be known domain string")
 
-        # Action category enforcement — validate and normalize action_category BEFORE simulation
-        raw_cat = action.get("action_category", "DIGITAL")
-        if hasattr(raw_cat, "value"):
-            raw_cat = raw_cat.value
+        # Action category enforcement — SERVER-SIDE classification, not caller-supplied
+        # The caller's action_category is cross-validated against actual action properties.
+        # If device_id is present, the action is PHYSICAL regardless of caller declaration.
+        caller_cat = action.get("action_category", "DIGITAL")
+        if hasattr(caller_cat, "value"):
+            caller_cat = caller_cat.value
 
-        if not isinstance(raw_cat, str):
+        if not isinstance(caller_cat, str):
             return ORIONResponse(
                 status=ORIONStatus.UNAUTHORIZED,
                 error="Invalid action_category: must be a string",
             )
 
-        norm_cat = raw_cat.strip().upper()
+        caller_cat = caller_cat.strip().upper()
         valid_categories = {"DIGITAL", "FINANCIAL", "LEGAL", "PHYSICAL", "STRATEGIC"}
-        if not norm_cat or norm_cat not in valid_categories:
+        if not caller_cat or caller_cat not in valid_categories:
             return ORIONResponse(
                 status=ORIONStatus.UNAUTHORIZED,
-                error=f"Invalid action_category: '{raw_cat}' is not a valid category",
+                error=f"Invalid action_category: '{caller_cat}' is not a valid category",
             )
+
+        # Server-side reclassification: if action has device_id, it MUST be PHYSICAL
+        # regardless of what the caller claims. Prevents downgrading PHYSICAL to DIGITAL.
+        if action.get("device_id"):
+            if caller_cat != "PHYSICAL":
+                return ORIONResponse(
+                    status=ORIONStatus.UNAUTHORIZED,
+                    error=f"DECISION_REQUIRED: action with device_id must be classified as PHYSICAL, "
+                          f"but caller declared '{caller_cat}' — possible category downgrade attack",
+                )
+            norm_cat = "PHYSICAL"
+        else:
+            # Actions without device_id cannot be PHYSICAL
+            if caller_cat == "PHYSICAL":
+                return ORIONResponse(
+                    status=ORIONStatus.UNAUTHORIZED,
+                    error="PHYSICAL action requires device_id — cannot classify as PHYSICAL without hardware target",
+                )
+            norm_cat = caller_cat
 
         if norm_cat in ("FINANCIAL", "LEGAL", "STRATEGIC"):
             return ORIONResponse(

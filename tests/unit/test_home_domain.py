@@ -261,6 +261,7 @@ class TestHomeDomain(unittest.TestCase):
             target_entity="lock_front",
             action_params={},
         )
+        proposal.safety_approved = True  # Simulate Safety Gateway approval
         result = self.sim.execute_action(proposal)
         self.assertEqual(result.outcome, ExecutionOutcome.COMPLETED)
         self.assertFalse(self.sim.front_lock.is_locked)
@@ -271,6 +272,7 @@ class TestHomeDomain(unittest.TestCase):
             target_entity="lock_front",
             action_params={},
         )
+        proposal.safety_approved = True  # Simulate Safety Gateway approval
         result = self.sim.execute_action(proposal)
         self.assertEqual(result.outcome, ExecutionOutcome.COMPLETED)
         self.assertTrue(self.sim.front_lock.is_locked)

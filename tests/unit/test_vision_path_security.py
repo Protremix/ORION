@@ -23,10 +23,12 @@ class TestVisionPathSecurity:
 
         with patch.dict(os.environ, {"ORION_VISION_DATA_DIR": str(base_dir)}):
             result = validate_image_path("sample.png")
-            assert result == str(valid_file.resolve())
+            assert isinstance(result, bytes)
+            assert result == b"fake image data"
 
             result_full = validate_image_path(str(valid_file))
-            assert result_full == str(valid_file.resolve())
+            assert isinstance(result_full, bytes)
+            assert result_full == b"fake image data"
 
     def test_dot_dot_traversal_rejected(self, tmp_path):
         base_dir = tmp_path / "vision"
@@ -70,10 +72,10 @@ class TestVisionPathSecurity:
             pytest.skip("Symlinks not supported on this platform/user")
 
         with patch.dict(os.environ, {"ORION_VISION_DATA_DIR": str(base_dir)}):
-            with pytest.raises(ValueError, match="Access denied|escapes"):
+            with pytest.raises(ValueError, match="Access denied|escapes|symlink"):
                 validate_image_path(str(symlink_file))
 
-            with pytest.raises(ValueError, match="Access denied|escapes"):
+            with pytest.raises(ValueError, match="Access denied|escapes|symlink"):
                 validate_image_path("bad_symlink.png")
 
     def test_valid_image_path_allowed(self, tmp_path):
@@ -83,9 +85,9 @@ class TestVisionPathSecurity:
         image_file.write_bytes(b"PNG header bytes")
 
         with patch.dict(os.environ, {"ORION_VISION_DATA_DIR": str(base_dir)}):
-            safe_path = validate_image_path("test_image.png")
-            assert safe_path == str(image_file.resolve())
-            assert Path(safe_path).exists()
+            image_data = validate_image_path("test_image.png")
+            assert isinstance(image_data, bytes)
+            assert image_data == b"PNG header bytes"
 
     def test_empty_or_invalid_input_raises(self):
         with pytest.raises(ValueError, match="Image path must be a non-empty string"):
