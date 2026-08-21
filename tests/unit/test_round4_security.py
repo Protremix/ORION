@@ -18,13 +18,13 @@ from src.contracts.contracts import (
     ExecutionOutcome,
     RiskTier,
     generate_contract_id,
+    issue_safety_token,
 )
 from src.domains.drone.drone_simulator import DroneSimulation as DroneSimulator
 from src.domains.home.home_simulator import HomeSimulation as HomeSimulator
 from src.models import VisionRequest
 from src.models.gpt4o_adapters import GPT4oVisionAdapter, validate_image_path
 from src.persistence.task_state import CheckpointType, TaskStateManager, TaskStatus
-from src.contracts.contracts import issue_safety_token
 
 
 class TestDomainSimulatorSafetyGate:
@@ -224,10 +224,20 @@ class TestVisionSecurity:
         with pytest.raises(ValueError, match="Unsafe image URL scheme"):
             adapter._prepare_image(VisionRequest(image_url="ftp://example.com/img.png"))
 
-    def test_https_url_allowed(self):
+    def test_https_url_downloaded_not_passthrough(self):
+        """Change #10: HTTPS URLs are downloaded locally and converted to base64 data URLs,
+        not passed through to OpenAI as arbitrary URLs."""
         adapter = GPT4oVisionAdapter(api_key="test-key")
-        result = adapter._prepare_image(VisionRequest(image_url="https://example.com/img.png"))
-        assert result == "https://example.com/img.png"
+        # example.com resolves to a public IP but won't serve an image — should fail with download error
+        # not an SSRF bypass. The key assertion is that HTTPS URLs are NOT passed through as-is.
+        try:
+            result = adapter._prepare_image(VisionRequest(image_url="https://example.com/img.png"))
+            # If download succeeds, result must be a data URL (not the original HTTPS URL)
+            assert result.startswith("data:image/"), f"Expected data URL, got: {result[:50]}"
+        except ValueError as e:
+            # Download failure is acceptable — the point is it's NOT passed through
+            assert "download" in str(e).lower() or "ssrf" in str(e).lower() or "not found" in str(e).lower(), \
+                f"Unexpected error: {e}"
 
     def test_data_url_allowed(self):
         adapter = GPT4oVisionAdapter(api_key="test-key")
