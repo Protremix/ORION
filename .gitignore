@@ -22,3 +22,5 @@ env/
 *.sqlite3
 *.db
 docs/__pycache__/
+.venv-verify/
+.venv/

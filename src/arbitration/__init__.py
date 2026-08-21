@@ -2,7 +2,7 @@
 Action Arbitration and Policy Gate package for ORION.
 """
 
-from arbitration.action_arbitration import (
+from src.arbitration.action_arbitration import (
     ActionArbitration,
     ActionAuthorizationLease,
     ActionProposal,
