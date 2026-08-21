@@ -21,8 +21,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from eval.cloud_adapter import CloudModelAdapter, CloudProvider
 from eval.benchmark_tests import create_orion_eval
+from eval.cloud_adapter import CloudModelAdapter, CloudProvider
 
 
 class TestCloudModelAdapter:
