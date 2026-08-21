@@ -403,6 +403,10 @@ class PermissionChecker:
                     hmac TEXT NOT NULL
                 )
             ''')
+            # Change #4: DELETE all existing rows first, then INSERT current agents.
+            # This ensures agents removed from _registry are also removed from storage —
+            # no stale permissions persist after revocation (Luna Round 5, Vector C).
+            conn.execute('DELETE FROM permissions')
             for agent_id, perms in cls._registry.items():
                 perms_serialized = json.dumps([
                     p.value if isinstance(p, PermissionLevel) else str(p) for p in perms
@@ -413,7 +417,7 @@ class PermissionChecker:
                     conn.close()
                     return False
                 conn.execute(
-                    'INSERT OR REPLACE INTO permissions (agent_id, permissions_json, updated_at, hmac) VALUES (?, ?, ?, ?)',
+                    'INSERT INTO permissions (agent_id, permissions_json, updated_at, hmac) VALUES (?, ?, ?, ?)',
                     (agent_id, perms_serialized, time.time(), hmac_val)
                 )
             details = json.dumps({'count': len(cls._registry)})
