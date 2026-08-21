@@ -323,7 +323,7 @@ class HomeSimulation:
         # Safety Gateway enforcement: reject actions not approved by Safety Gateway
         # Physical actions (lock/unlock/trigger_evacuation) MUST have safety_approved=True
         physical_actions = {"lock", "unlock", "trigger_evacuation", "clear_emergency"}
-        if proposal.action_type in physical_actions and not getattr(proposal, "safety_approved", False):
+        if proposal.action_type in physical_actions and getattr(proposal, "safety_approved", False) is not True:
             return ActionExecutionResult(
                 outcome=ExecutionOutcome.REJECTED,
                 execution_stage=ExecutionStage.COMPLETED,

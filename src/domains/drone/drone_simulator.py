@@ -326,7 +326,7 @@ class DroneSimulation:
         """Execute an action proposal."""
         # Safety Gateway enforcement: all drone actions require safety_approved=True
         # Drones are safety-critical — every action must go through Safety Gateway
-        if not getattr(proposal, "safety_approved", False):
+        if getattr(proposal, "safety_approved", False) is not True:
             return ActionExecutionResult(
                 outcome=ExecutionOutcome.REJECTED,
                 execution_stage=ExecutionStage.COMPLETED,
