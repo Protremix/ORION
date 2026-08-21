@@ -613,7 +613,8 @@ class VehicleSimulation:
                     )
                 # Luna Round 7 #3: Atomic check-and-insert with lock to prevent TOCTOU race
                 with self._credential_lock:
-                    # Luna Round 9: Prune expired credentials (older than 120s — beyond replay window)
+                    # Luna Round 10: Prune expired credentials (older than 120s — beyond replay window)
+                    # AND enforce count-based cap (max 10000 entries) to prevent memory exhaustion
                     now_prune = _time.time()
                     expired = [
                         k for k, v in self._used_reset_credentials.items()
@@ -621,6 +622,12 @@ class VehicleSimulation:
                     ]
                     for k in expired:
                         del self._used_reset_credentials[k]
+                    # Luna Round 10: Hard count-based cap (max 1000 entries) to prevent
+                    # memory exhaustion from credential flooding within the 120s window.
+                    # OrderedDict preserves insertion order — evict oldest first.
+                    MAX_REPLAY_CACHE = 1000
+                    while len(self._used_reset_credentials) > MAX_REPLAY_CACHE:
+                        self._used_reset_credentials.popitem(last=False)
                     # Check for replay — credential must not have been used before
                     if cred_str in self._used_reset_credentials:
                         return ActionExecutionResult(
@@ -645,6 +652,9 @@ class VehicleSimulation:
                         )
                     # Mark credential as used with timestamp — atomic with check (Luna Round 9)
                     self._used_reset_credentials[cred_str] = now_prune
+                    # Luna Round 10: Post-insertion cardinality cap
+                    while len(self._used_reset_credentials) > MAX_REPLAY_CACHE:
+                        self._used_reset_credentials.popitem(last=False)
                 self.aeb_controller.reset()
                 self.ego_vehicle.set_state("STOPPED")
                 self.system_status = "NOMINAL"
