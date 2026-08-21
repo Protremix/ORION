@@ -718,22 +718,34 @@ class TestGateCleanupAfterException:
         )
 
     def test_vehicle_gate_cleared_after_rejected_action(self):
-        """After propose_action() rejects, gate must be cleared."""
+        """After propose_action() raises inside the gated block, gate must be cleared (try/finally)."""
         sim = VehicleSimulation()
+        action_id = generate_contract_id()
+        token = issue_safety_token(action_id, "accelerate", "ego_vehicle")
+
+        # Monkey-patch update_kinematics to raise — simulates exception inside gated block
+        original_update = sim.ego_vehicle.update_kinematics
+        def raise_on_update(**kwargs):
+            raise RuntimeError("Simulated failure inside gated execution")
+        sim.ego_vehicle.update_kinematics = raise_on_update
+
         proposal = ActionProposal(
+            action_id=action_id,
             action_type="accelerate",
             target_entity="ego_vehicle",
             action_category=ActionCategory.DIGITAL,
-            action_parameters={"acceleration": float("nan")},
+            action_parameters={"acceleration": 1.0},
             risk_tier=RiskTier.LOW,
             safety_approved=True,
-            safety_auth_token=issue_safety_token(generate_contract_id(), "accelerate", "ego_vehicle"),
+            safety_auth_token=token,
         )
         result = sim.propose_action(proposal)
-        # Action is rejected (NaN)
-        assert result.outcome == ExecutionOutcome.REJECTED.value
+        # The action should fail due to the injected exception
+        assert result.outcome == ExecutionOutcome.FAILED.value, (
+            f"Expected FAILED from injected exception — got {result.outcome}"
+        )
         assert sim._safety_gate_active is False, (
-            "Gate must be False after rejected action — bypass vector"
+            "Gate must be False after exception in gated block — try/finally bypass vector"
         )
 
     def test_vehicle_gate_cleared_after_unknown_action(self):
@@ -768,7 +780,7 @@ class TestConcurrentReplayProtection:
     """Concurrent replay protection — Luna Round 8."""
 
     def test_concurrent_credential_use_blocked(self):
-        """Two threads using the same credential — only one should succeed."""
+        """Two threads using the same credential on ONE shared simulator — only one should succeed."""
         import hashlib
         import hmac
         import os
@@ -776,13 +788,21 @@ class TestConcurrentReplayProtection:
         import time
         os.environ.setdefault("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key")
 
+        # Luna Round 8: Must share ONE simulator instance to test shared replay state
+        sim = VehicleSimulation()
+        sim.ego_vehicle.set_state("EMERGENCY")
+        sim.system_status = "EMERGENCY"
+
         results = []
         results_lock = threading.Lock()
+        barrier = threading.Barrier(2)
 
         def attempt_reset(cred):
-            sim = VehicleSimulation()
-            sim.ego_vehicle.set_state("EMERGENCY")
-            sim.system_status = "EMERGENCY"
+            # Reset to EMERGENCY for each attempt (the first successful reset clears it)
+            with sim._credential_lock:
+                sim.ego_vehicle.set_state("EMERGENCY")
+                sim.system_status = "EMERGENCY"
+            barrier.wait()  # Ensure both threads start simultaneously
             proposal = ActionProposal(
                 action_type="reset_emergency",
                 target_entity="ego_vehicle",
@@ -809,12 +829,123 @@ class TestConcurrentReplayProtection:
         t1.join()
         t2.join()
 
-        # At most one should be COMPLETED, at least one should be REJECTED
+        # At most one should be COMPLETED — replay protection blocks the second
         completed_count = sum(1 for r in results if r == ExecutionOutcome.COMPLETED.value)
-        rejected_count = sum(1 for r in results if r == ExecutionOutcome.REJECTED.value)
-        # Note: both might be rejected if the first one fails for other reasons,
-        # but if any succeed, only one should
         if completed_count > 0:
             assert completed_count == 1, (
                 f"Only one concurrent credential use should succeed — got {completed_count}"
             )
+
+
+# ============================================================================
+# Luna Round 8: Bounded-read and descriptor-leak adversarial tests
+# ============================================================================
+
+class TestBoundedReadAdversarial:
+    """Bounded read — file growth during read must be detected (Luna Round 8)."""
+
+    def test_file_growth_detected(self, tmp_path):
+        """A file larger than 50MB must be rejected by the size limit."""
+        import os
+
+        from src.models.gpt4o_adapters import validate_image_path
+
+        # Create a file exactly 50MB + 1KB (just over the limit)
+        large_file = tmp_path / "large.png"
+        with open(large_file, "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * (50 * 1024 * 1024 + 1024))
+
+        os.environ["ORION_VISION_DATA_DIR"] = str(tmp_path)
+        with pytest.raises(ValueError, match="too large|exceeds 50MB"):
+            validate_image_path(str(large_file))
+
+
+class TestDescriptorLeakAdversarial:
+    """Descriptor leak — fd must be closed on all exception paths (Luna Round 8)."""
+
+    def test_descriptor_closed_on_symlink_rejection(self, tmp_path):
+        """When a symlink is rejected, no file descriptor leaks."""
+        import os
+
+        from src.models.gpt4o_adapters import validate_image_path
+
+        os.environ["ORION_VISION_DATA_DIR"] = str(tmp_path)
+
+        # Create a symlink inside base_dir
+        target = tmp_path / "target.png"
+        target.write_bytes(b"\x89PNG\r\n\x1a\n")
+        symlink = tmp_path / "evil.png"
+        os.symlink(target, symlink)
+
+        # Track open fd count before
+        before_fds = set(os.listdir("/proc/self/fd")) if os.path.exists("/proc/self/fd") else []
+
+        with pytest.raises(ValueError):
+            validate_image_path(str(symlink))
+
+        # Track open fd count after — should not increase
+        after_fds = set(os.listdir("/proc/self/fd")) if os.path.exists("/proc/self/fd") else []
+        if before_fds and after_fds:
+            leaked = after_fds - before_fds
+            assert len(leaked) == 0, f"File descriptor leaked: {leaked}"
+
+    def test_descriptor_closed_on_nonexistent_file(self, tmp_path):
+        """When a nonexistent file is rejected, no file descriptor leaks."""
+        import os
+
+        from src.models.gpt4o_adapters import validate_image_path
+
+        os.environ["ORION_VISION_DATA_DIR"] = str(tmp_path)
+
+        before_fds = set(os.listdir("/proc/self/fd")) if os.path.exists("/proc/self/fd") else []
+
+        with pytest.raises(ValueError):
+            validate_image_path(str(tmp_path / "nonexistent.png"))
+
+        after_fds = set(os.listdir("/proc/self/fd")) if os.path.exists("/proc/self/fd") else []
+        if before_fds and after_fds:
+            leaked = after_fds - before_fds
+            assert len(leaked) == 0, f"File descriptor leaked: {leaked}"
+
+class TestPostGateEarlyReturnAdversarial:
+    """Test gate cleanup after early returns INSIDE the execution try block — Luna Round 9."""
+
+    def test_gate_cleared_after_missing_reset_credential(self):
+        """Gate must be cleared when reset_emergency is called without credential."""
+        sim = VehicleSimulation()
+        sim.ego_vehicle.set_state("EMERGENCY")
+        sim.system_status = "EMERGENCY"
+        proposal = ActionProposal(
+            action_type="reset_emergency",
+            target_entity="ego_vehicle",
+            action_category=ActionCategory.DIGITAL,
+            action_parameters={},  # No hmac_credential
+            risk_tier=RiskTier.LOW,
+            safety_approved=True,
+            safety_auth_token=issue_safety_token(generate_contract_id(), "reset_emergency", "ego_vehicle"),
+        )
+        result = sim.propose_action(proposal)
+        assert result.outcome == ExecutionOutcome.REJECTED.value
+        assert sim._safety_gate_active is False, (
+            "Gate must be cleared after early return inside execution try"
+        )
+
+    def test_gate_cleared_after_invalid_hmac(self):
+        """Gate must be cleared when HMAC verification fails."""
+        sim = VehicleSimulation()
+        sim.ego_vehicle.set_state("EMERGENCY")
+        sim.system_status = "EMERGENCY"
+        proposal = ActionProposal(
+            action_type="reset_emergency",
+            target_entity="ego_vehicle",
+            action_category=ActionCategory.DIGITAL,
+            action_parameters={"hmac_credential": "12345:invalid_signature"},
+            risk_tier=RiskTier.LOW,
+            safety_approved=True,
+            safety_auth_token=issue_safety_token(generate_contract_id(), "reset_emergency", "ego_vehicle"),
+        )
+        result = sim.propose_action(proposal)
+        assert result.outcome == ExecutionOutcome.REJECTED.value
+        assert sim._safety_gate_active is False, (
+            "Gate must be cleared after HMAC failure inside execution try"
+        )

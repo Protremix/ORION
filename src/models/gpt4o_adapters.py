@@ -155,15 +155,20 @@ def validate_image_path(path: str) -> bytes:
     # each open is relative to a fixed directory descriptor that cannot
     # be replaced between check and use.
     # Luna Round 7 #6: Open parent first, then walk to base_dir with O_NOFOLLOW
+    parent_fd = None
+    dir_fd = None
     try:
         parent_fd = os.open(str(base_dir.parent), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         dir_fd = os.open(base_dir.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
         os.close(parent_fd)
+        parent_fd = None  # Already closed — don't double-close in except
     except OSError as e:
-        try:
-            os.close(parent_fd)
-        except (OSError, UnboundLocalError):
-            pass
+        for fd in (parent_fd, dir_fd):
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
         raise ValueError(f"Cannot open base directory '{base_dir}': {e}") from e
 
     # Luna Round 7 #6: Use original (unresolved) components for O_NOFOLLOW walk

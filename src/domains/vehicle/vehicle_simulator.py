@@ -104,7 +104,9 @@ class VehicleSimulation:
         self.safety_events: List[Dict[str, Any]] = []
         self._safety_gate_active: bool = False
         # Change #8: Track used emergency reset credentials to prevent replay
-        self._used_reset_credentials: set = set()
+        # Luna Round 9: Time-bounded replay cache (credentials expire after 60s anyway)
+        from collections import OrderedDict
+        self._used_reset_credentials: OrderedDict = OrderedDict()
         self._credential_lock: threading.Lock = threading.Lock()
 
     def increment_state_revision(self) -> int:
@@ -611,6 +613,14 @@ class VehicleSimulation:
                     )
                 # Luna Round 7 #3: Atomic check-and-insert with lock to prevent TOCTOU race
                 with self._credential_lock:
+                    # Luna Round 9: Prune expired credentials (older than 120s — beyond replay window)
+                    now_prune = _time.time()
+                    expired = [
+                        k for k, v in self._used_reset_credentials.items()
+                        if now_prune - v > 120.0
+                    ]
+                    for k in expired:
+                        del self._used_reset_credentials[k]
                     # Check for replay — credential must not have been used before
                     if cred_str in self._used_reset_credentials:
                         return ActionExecutionResult(
@@ -633,11 +643,8 @@ class VehicleSimulation:
                             deviation={"error": "Invalid HMAC credential for emergency reset"},
                             deviation_reason="Unauthorized emergency reset — invalid signature",
                         )
-                    # Mark credential as used (replay prevention) — atomic with check
-                    self._used_reset_credentials.add(cred_str)
-                    # Prevent unbounded growth — inside lock (Luna Round 8)
-                    if len(self._used_reset_credentials) > 1000:
-                        self._used_reset_credentials = set(list(self._used_reset_credentials)[-1000:])
+                    # Mark credential as used with timestamp — atomic with check (Luna Round 9)
+                    self._used_reset_credentials[cred_str] = now_prune
                 self.aeb_controller.reset()
                 self.ego_vehicle.set_state("STOPPED")
                 self.system_status = "NOMINAL"
