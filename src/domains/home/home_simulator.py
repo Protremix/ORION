@@ -321,8 +321,13 @@ class HomeSimulation:
     def execute_action(self, proposal: ActionProposal) -> ActionExecutionResult:
         """Execute an action proposal."""
         # Safety Gateway enforcement: reject actions not approved by Safety Gateway
-        # Physical actions (lock/unlock/trigger_evacuation) MUST have safety_approved=True
-        physical_actions = {"lock", "unlock", "trigger_evacuation", "clear_emergency"}
+        # ALL home actions are physical — they affect the physical environment (HVAC, lighting, locks, etc.)
+        # ALL home actions affect physical environment (HVAC, lighting, locks, evacuation)
+        # SC-3: human occupancy — every action must go through Safety Gateway
+        physical_actions = {
+            "lock", "unlock", "trigger_evacuation", "clear_emergency",
+            "set_temperature", "set_brightness", "set_hvac_mode",
+        }
         if proposal.action_type in physical_actions and getattr(proposal, "safety_approved", False) is not True:
             return ActionExecutionResult(
                 outcome=ExecutionOutcome.REJECTED,

@@ -64,14 +64,27 @@ class TestDomainSimulatorSafetyGate:
         result = sim.execute_action(proposal)
         assert result.outcome == ExecutionOutcome.COMPLETED
 
-    def test_home_set_temperature_without_safety_approved_allowed(self):
-        """Non-physical actions (set_temperature) don't require safety_approved."""
+    def test_home_set_temperature_without_safety_approved_rejected(self):
+        """Physical actions (set_temperature) now require safety_approved — HVAC is physical."""
         sim = HomeSimulator()
         proposal = sim.create_action_proposal(
             action_type="set_temperature",
             target_entity="hvac_ground",
             action_params={"temperature": 22.0},
         )
+        result = sim.execute_action(proposal)
+        assert result.outcome == ExecutionOutcome.REJECTED
+        assert "Safety Gateway" in result.deviation_reason
+
+    def test_home_set_temperature_with_safety_approved_executes(self):
+        """Physical actions (set_temperature) execute when safety_approved=True."""
+        sim = HomeSimulator()
+        proposal = sim.create_action_proposal(
+            action_type="set_temperature",
+            target_entity="hvac_ground",
+            action_params={"temperature": 22.0},
+        )
+        proposal.safety_approved = True
         result = sim.execute_action(proposal)
         assert result.outcome == ExecutionOutcome.COMPLETED
 

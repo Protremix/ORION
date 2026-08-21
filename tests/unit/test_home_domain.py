@@ -233,6 +233,7 @@ class TestHomeDomain(unittest.TestCase):
             target_entity="hvac_ground",
             action_params={"temperature": 24.0},
         )
+        proposal.safety_approved = True  # Simulate Safety Gateway approval
         self.assertEqual(proposal.action_type, "set_temperature")
         self.assertEqual(proposal.target_entity, "hvac_ground")
 
@@ -249,6 +250,7 @@ class TestHomeDomain(unittest.TestCase):
             target_entity="light_living",
             action_params={"brightness": 50},
         )
+        proposal.safety_approved = True  # Simulate Safety Gateway approval
         result = self.sim.execute_action(proposal)
         self.assertEqual(result.outcome, ExecutionOutcome.COMPLETED)
         self.assertEqual(self.sim.light_living.brightness, 50)
