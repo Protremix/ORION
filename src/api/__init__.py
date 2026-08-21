@@ -329,10 +329,35 @@ class ORIONAPI:
         if not validate_domain_param(domain):
             return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid domain — must be known domain string")
 
+        # Vector #4: Validate device_id — strict format validation if present
+        import re
+        raw_device_id = action.get("device_id")
+        if raw_device_id is not None:
+            if not isinstance(raw_device_id, str) or not raw_device_id.strip():
+                return ORIONResponse(
+                    status=ORIONStatus.ERROR,
+                    error="Invalid device_id — must be a non-empty string",
+                )
+            stripped = raw_device_id.strip()
+            # Reject path traversal characters and enforce alphanumeric + _ - . format
+            # Max 128 chars to prevent buffer attacks
+            if not re.match(r'^[a-zA-Z0-9_][a-zA-Z0-9_\-.]{0,127}$', stripped):
+                return ORIONResponse(
+                    status=ORIONStatus.ERROR,
+                    error="Invalid device_id — must be alphanumeric/underscore/hyphen/dot, max 128 chars, no path traversal",
+                )
+            action["device_id"] = stripped
+
+        # Vector #10: action_category is REQUIRED — no default. Prevents omitting category to bypass elevated authorization.
         # Action category enforcement — SERVER-SIDE classification, not caller-supplied
         # The caller's action_category is cross-validated against actual action properties.
         # If device_id is present, the action is PHYSICAL regardless of caller declaration.
-        caller_cat = action.get("action_category", "DIGITAL")
+        caller_cat = action.get("action_category")
+        if caller_cat is None:
+            return ORIONResponse(
+                status=ORIONStatus.UNAUTHORIZED,
+                error="action_category is required — cannot be omitted (prevents category bypass attack)",
+            )
         if hasattr(caller_cat, "value"):
             caller_cat = caller_cat.value
 
