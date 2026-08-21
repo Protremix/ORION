@@ -197,8 +197,16 @@ def validate_image_path(path: str) -> bytes:
                 raise ValueError(f"Cannot open path component '{component}': {e}") from e
 
             # Close parent directory fd and move to the next level
-            os.close(dir_fd)
-            dir_fd = next_fd
+            # Luna Round 9: Track next_fd before closing old dir_fd to prevent leak
+            # if os.close(dir_fd) raises after next_fd is opened
+            old_dir_fd = dir_fd
+            dir_fd = next_fd  # Assign first so cleanup handler can find it
+            try:
+                os.close(old_dir_fd)
+            except OSError:
+                # If close fails, the old fd leaks but dir_fd (next_fd) is safe
+                # Best-effort cleanup — can't recover the old fd
+                pass
 
         # dir_fd now points to the final file.
         # Luna Round 7 #6: Verify it's a regular file (not FIFO, device, etc.)

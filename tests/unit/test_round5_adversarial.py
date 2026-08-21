@@ -803,14 +803,16 @@ class TestConcurrentReplayProtection:
                 sim.ego_vehicle.set_state("EMERGENCY")
                 sim.system_status = "EMERGENCY"
             barrier.wait()  # Ensure both threads start simultaneously
+            action_id = generate_contract_id()
             proposal = ActionProposal(
+                action_id=action_id,
                 action_type="reset_emergency",
                 target_entity="ego_vehicle",
                 action_category=ActionCategory.DIGITAL,
                 action_parameters={"hmac_credential": cred},
                 risk_tier=RiskTier.LOW,
                 safety_approved=True,
-                safety_auth_token=issue_safety_token(generate_contract_id(), "reset_emergency", "ego_vehicle"),
+                safety_auth_token=issue_safety_token(action_id, "reset_emergency", "ego_vehicle"),
             )
             result = sim.propose_action(proposal)
             with results_lock:
@@ -829,12 +831,16 @@ class TestConcurrentReplayProtection:
         t1.join()
         t2.join()
 
-        # At most one should be COMPLETED — replay protection blocks the second
+        # Exactly one should be COMPLETED, exactly one should be REJECTED
+        assert len(results) == 2, f"Expected 2 results — got {len(results)}"
         completed_count = sum(1 for r in results if r == ExecutionOutcome.COMPLETED.value)
-        if completed_count > 0:
-            assert completed_count == 1, (
-                f"Only one concurrent credential use should succeed — got {completed_count}"
-            )
+        rejected_count = sum(1 for r in results if r == ExecutionOutcome.REJECTED.value)
+        assert completed_count == 1, (
+            f"Exactly one concurrent credential use should succeed — got {completed_count} completed, {rejected_count} rejected"
+        )
+        assert rejected_count == 1, (
+            f"Exactly one should be rejected for replay — got {completed_count} completed, {rejected_count} rejected"
+        )
 
 
 # ============================================================================
@@ -844,13 +850,39 @@ class TestConcurrentReplayProtection:
 class TestBoundedReadAdversarial:
     """Bounded read — file growth during read must be detected (Luna Round 8)."""
 
-    def test_file_growth_detected(self, tmp_path):
-        """A file larger than 50MB must be rejected by the size limit."""
+    def test_file_growth_during_read_detected(self, tmp_path):
+        """A file within size limit at fstat() but growing during read must be detected."""
+        import os
+        from unittest.mock import patch
+
+        from src.models.gpt4o_adapters import validate_image_path
+
+        # Create a file exactly 1MB (well within the 50MB limit)
+        small_file = tmp_path / "small.png"
+        with open(small_file, "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * (1024 * 1024))
+
+        os.environ["ORION_VISION_DATA_DIR"] = str(tmp_path)
+
+        # Monkey-patch os.fdopen to return a file whose read() returns >50MB
+        original_fdopen = os.fdopen
+        def patched_fdopen(fd, *args, **kwargs):
+            f = original_fdopen(fd, *args, **kwargs)
+            def growing_read(size=None):
+                return b"\x00" * (50 * 1024 * 1024 + 1)
+            f.read = growing_read
+            return f
+
+        with patch("os.fdopen", side_effect=patched_fdopen):
+            with pytest.raises(ValueError, match="grew during read|exceeds 50MB"):
+                validate_image_path(str(small_file))
+
+    def test_file_size_limit_enforced(self, tmp_path):
+        """A file already exceeding 50MB must be rejected by fstat size check."""
         import os
 
         from src.models.gpt4o_adapters import validate_image_path
 
-        # Create a file exactly 50MB + 1KB (just over the limit)
         large_file = tmp_path / "large.png"
         with open(large_file, "wb") as f:
             f.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * (50 * 1024 * 1024 + 1024))
@@ -949,3 +981,83 @@ class TestPostGateEarlyReturnAdversarial:
         assert sim._safety_gate_active is False, (
             "Gate must be cleared after HMAC failure inside execution try"
         )
+
+
+class TestDescriptorLeakInjectedFailureAdversarial:
+    """Inject os.close failures to verify descriptors are properly cleaned up (Luna Round 9)."""
+
+    def test_close_failure_during_walk(self, tmp_path):
+        """If os.close(old_dir_fd) fails during walk, next_fd (now dir_fd) must still be closed by except handler."""
+        import os
+        from unittest.mock import patch
+
+        from src.models.gpt4o_adapters import validate_image_path
+
+        os.environ["ORION_VISION_DATA_DIR"] = str(tmp_path)
+
+        # Create a nested directory structure
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        img_file = subdir / "test.png"
+        img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        original_close = os.close
+        close_count = [0]
+
+        def flaky_close(fd):
+            close_count[0] += 1
+            # Fail on the 2nd close call (closing old_dir_fd after next_fd is opened)
+            if close_count[0] == 2:
+                raise OSError("Simulated close failure")
+            return original_close(fd)
+
+        before_fds = set(os.listdir("/proc/self/fd")) if os.path.exists("/proc/self/fd") else []
+
+        with patch("os.close", side_effect=flaky_close):
+            try:
+                validate_image_path(str(img_file))
+            except (ValueError, OSError):
+                pass  # Expected — close failure causes error
+
+        after_fds = set(os.listdir("/proc/self/fd")) if os.path.exists("/proc/self/fd") else []
+        if before_fds and after_fds:
+            leaked = after_fds - before_fds
+            # At most 1 fd may leak (the old_dir_fd that couldn't be closed — unavoidable)
+            # next_fd (dir_fd) should be closed by the except handler
+            assert len(leaked) <= 1, (
+                f"More than 1 fd leaked (old_dir_fd leak is expected, next_fd leak is not): {leaked}"
+            )
+
+    def test_close_failure_during_base_dir_open(self, tmp_path):
+        """If os.close(parent_fd) fails after dir_fd is opened, dir_fd must be closed."""
+        import os
+        from unittest.mock import patch
+
+        from src.models.gpt4o_adapters import validate_image_path
+
+        os.environ["ORION_VISION_DATA_DIR"] = str(tmp_path)
+        img_file = tmp_path / "test.png"
+        img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        original_close = os.close
+        call_count = [0]
+
+        def flaky_close(fd):
+            call_count[0] += 1
+            # Fail on the 1st close (closing parent_fd after dir_fd is opened)
+            if call_count[0] == 1:
+                raise OSError("Simulated close failure")
+            return original_close(fd)
+
+        before_fds = set(os.listdir("/proc/self/fd")) if os.path.exists("/proc/self/fd") else []
+
+        with patch("os.close", side_effect=flaky_close):
+            try:
+                validate_image_path(str(img_file))
+            except (ValueError, OSError):
+                pass  # Expected
+
+        after_fds = set(os.listdir("/proc/self/fd")) if os.path.exists("/proc/self/fd") else []
+        if before_fds and after_fds:
+            leaked = after_fds - before_fds
+            assert len(leaked) == 0, f"File descriptor leaked in base dir open: {leaked}"
