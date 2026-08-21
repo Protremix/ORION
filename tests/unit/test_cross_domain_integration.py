@@ -12,6 +12,7 @@ Verifies:
 """
 
 import hashlib
+import time
 import hmac
 import os
 import sys
@@ -40,6 +41,7 @@ class TestCrossDomainIntegration(unittest.TestCase):
         self.industrial = IndustrialSimulation()
         self.home = HomeSimulation()
         self.drone = DroneSimulation()
+        self.drone._safety_gate_active = True  # Arm safety gate for direct method tests
 
         # Register all domains
         self.arb.register_domain("industrial", "Factory Floor", SafetyCriticality.SC_1)
@@ -162,7 +164,8 @@ class TestCrossDomainIntegration(unittest.TestCase):
         self.assertTrue(self.arb.is_emergency_active())
 
         # Clear
-        self.arb.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), b"clear_emergency", hashlib.sha256).hexdigest())
+        ts = time.time()
+        self.arb.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), f"clear_emergency:{ts}".encode(), hashlib.sha256).hexdigest(), timestamp=ts)
         self.assertFalse(self.arb.is_emergency_active())
         for dom in self.arb.list_domains():
             self.assertEqual(dom.state, DomainState.ACTIVE)
@@ -295,8 +298,10 @@ class TestCrossDomainIntegration(unittest.TestCase):
         self.assertTrue(self.arb.is_emergency_active())
 
         # Clear
-        self.home.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), b"clear_emergency", hashlib.sha256).hexdigest())
-        self.arb.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), b"clear_emergency", hashlib.sha256).hexdigest())
+        ts = time.time()
+        self.home.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), f"clear_emergency:{ts}".encode(), hashlib.sha256).hexdigest(), timestamp=ts)
+        ts = time.time()
+        self.arb.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), f"clear_emergency:{ts}".encode(), hashlib.sha256).hexdigest(), timestamp=ts)
         self.assertEqual(self.home.system_status, "NOMINAL")
         self.assertFalse(self.arb.is_emergency_active())
 

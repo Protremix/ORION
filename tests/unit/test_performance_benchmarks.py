@@ -105,7 +105,8 @@ class TestPerformanceBenchmarks(unittest.TestCase):
         ]
 
         def run_arbitrate():
-            arb.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), b"clear_emergency", hashlib.sha256).hexdigest())
+            ts = time.time()
+            arb.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), f"clear_emergency:{ts}".encode(), hashlib.sha256).hexdigest(), timestamp=ts)
             arb.arbitrate(events)
 
         self._benchmark("cross_domain_arbitration", run_arbitrate, 1000)
@@ -135,6 +136,7 @@ class TestPerformanceBenchmarks(unittest.TestCase):
         industrial = IndustrialSimulation()
         home = HomeSimulation()
         drone = DroneSimulation()
+        drone._safety_gate_active = True  # Arm safety gate for benchmark
         drone.takeoff(10.0)
 
         self._benchmark("industrial_step",

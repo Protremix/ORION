@@ -194,17 +194,28 @@ class HomeSimulation:
         self.increment_state_revision()
         return {"status": "EMERGENCY", "actions": actions}
 
-    def clear_emergency(self, hmac_credential: Optional[str] = None) -> None:
-        """Clear emergency state and reset all systems to normal. Requires HMAC authorization."""
+    def clear_emergency(self, hmac_credential: Optional[str] = None, timestamp: Optional[float] = None) -> None:
+        """Clear emergency state and reset all systems to normal. Requires HMAC authorization with replay protection.
+
+        Args:
+            hmac_credential: HMAC-SHA256 of f"clear_emergency:{timestamp}" using ORION_EMERGENCY_HMAC_KEY
+            timestamp: Unix timestamp (seconds). Must be within 60 seconds of current time (replay window).
+        """
         if not hmac_credential or not hmac_credential.strip():
             raise PermissionError("HMAC credential required to clear emergency — deny by default")
+        if timestamp is None:
+            raise PermissionError("Timestamp required for replay protection — deny by default")
+        import time as _time
+        if abs(_time.time() - timestamp) > 60.0:
+            raise PermissionError("HMAC timestamp outside replay window — emergency clearing denied")
         import hashlib
         import hmac as hmac_mod
         import os
         expected_key = os.environ.get("ORION_EMERGENCY_HMAC_KEY", "")
         if not expected_key:
             raise PermissionError("ORION_EMERGENCY_HMAC_KEY not configured — cannot authorize emergency clearing")
-        expected_hmac = hmac_mod.new(expected_key.encode(), b"clear_emergency", hashlib.sha256).hexdigest()
+        expected_message = f"clear_emergency:{timestamp}".encode()
+        expected_hmac = hmac_mod.new(expected_key.encode(), expected_message, hashlib.sha256).hexdigest()
         if not hmac_mod.compare_digest(hmac_credential, expected_hmac):
             raise PermissionError("Invalid HMAC credential — emergency clearing denied")
         self.system_status = "NOMINAL"

@@ -88,8 +88,13 @@ class ArbitrationResult:
     hash: str = ""
 
     def compute_hash(self) -> str:
+        import os
+        import hmac as _hmac
         content = f"{self.result_id}:{self.timestamp}:{self.decision.value}:{self.winning_domain}"
-        self.hash = hashlib.sha256(content.encode()).hexdigest()
+        audit_key = os.environ.get("ORION_AUDIT_KEY") or os.environ.get("ORION_POLICY_KEY")
+        if not audit_key:
+            raise PermissionError("ORION_AUDIT_KEY not configured — cannot sign arbitration result (fail-closed)")
+        self.hash = _hmac.new(audit_key.encode(), content.encode(), hashlib.sha256).hexdigest()
         return self.hash
 
 
@@ -367,19 +372,35 @@ class CrossDomainArbitrator:
         return list(self._arbitration_log)
 
     def verify_log_integrity(self) -> bool:
-        """Verify hash chain integrity of arbitration log."""
+        """Verify HMAC integrity of arbitration log — fail-closed."""
+        import os
+        import hmac as _hmac
+        audit_key = os.environ.get("ORION_AUDIT_KEY") or os.environ.get("ORION_POLICY_KEY")
+        if not audit_key:
+            raise PermissionError("ORION_AUDIT_KEY not configured — cannot verify log integrity (fail-closed)")
         for result in self._arbitration_log:
-            expected_hash = hashlib.sha256(
-                f"{result.result_id}:{result.timestamp}:{result.decision.value}:{result.winning_domain}".encode()
-            ).hexdigest()
+            content = f"{result.result_id}:{result.timestamp}:{result.decision.value}:{result.winning_domain}"
+            expected_hash = _hmac.new(audit_key.encode(), content.encode(), hashlib.sha256).hexdigest()
             if result.hash != expected_hash:
                 return False
         return True
 
-    def clear_emergency(self, hmac_credential: Optional[str] = None) -> bool:
-        """Clear the emergency state across all domains. Requires HMAC authorization."""
+    def clear_emergency(self, hmac_credential: Optional[str] = None, timestamp: Optional[float] = None) -> bool:
+        """Clear the emergency state across all domains. Requires HMAC authorization with replay protection.
+
+        Args:
+            hmac_credential: HMAC-SHA256 of f"clear_emergency:{timestamp}" using ORION_EMERGENCY_HMAC_KEY
+            timestamp: Unix timestamp (seconds). Must be within 60 seconds of current time (replay window).
+        """
         if not hmac_credential or not hmac_credential.strip():
             raise PermissionError("HMAC credential required to clear emergency — deny by default")
+        if timestamp is None:
+            raise PermissionError("Timestamp required for replay protection — deny by default")
+        # Replay protection: timestamp must be within 60-second window
+        import time as _time
+        current_time = _time.time()
+        if abs(current_time - timestamp) > 60.0:
+            raise PermissionError("HMAC timestamp outside replay window — emergency clearing denied")
         # Verify HMAC credential (must match environment-configured key)
         import hashlib
         import hmac as hmac_mod
@@ -387,7 +408,9 @@ class CrossDomainArbitrator:
         expected_key = os.environ.get("ORION_EMERGENCY_HMAC_KEY", "")
         if not expected_key:
             raise PermissionError("ORION_EMERGENCY_HMAC_KEY not configured — cannot authorize emergency clearing")
-        expected_hmac = hmac_mod.new(expected_key.encode(), b"clear_emergency", hashlib.sha256).hexdigest()
+        # Include timestamp in HMAC message to prevent replay attacks
+        expected_message = f"clear_emergency:{timestamp}".encode()
+        expected_hmac = hmac_mod.new(expected_key.encode(), expected_message, hashlib.sha256).hexdigest()
         if not hmac_mod.compare_digest(hmac_credential, expected_hmac):
             raise PermissionError("Invalid HMAC credential — emergency clearing denied")
         self._emergency_active = False

@@ -551,14 +551,13 @@ class AuditLogStage:
             }
 
             serialized = json.dumps(entry_data, sort_keys=True)
-            # Use HMAC if key available, otherwise plain SHA-256
+            # HMAC-SHA256 only — fail-closed if key missing (no plain SHA-256 fallback)
             import os as _os
             audit_key = _os.environ.get("ORION_AUDIT_KEY") or _os.environ.get("ORION_POLICY_KEY")
-            if audit_key:
-                import hmac as _hmac
-                expected_hash = _hmac.new(audit_key.encode(), serialized.encode("utf-8"), hashlib.sha256).hexdigest()
-            else:
-                expected_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+            if not audit_key:
+                raise PermissionError("ORION_AUDIT_KEY not configured — cannot verify hash chain (fail-closed)")
+            import hmac as _hmac
+            expected_hash = _hmac.new(audit_key.encode(), serialized.encode("utf-8"), hashlib.sha256).hexdigest()
 
             if entry.hash != expected_hash:
                 return False
