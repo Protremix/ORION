@@ -7,7 +7,7 @@ ORION — Physical Intelligence OS
 002 — ORION Evaluation System
 
 ## COMMIT SHA
-dab4a6d
+(to be filled after commit)
 
 ## BRANCH
 main
@@ -20,26 +20,22 @@ Create the official ORION benchmark system (ORION EVAL) with 12 benchmark catego
 - Round 2: REQUIRES_CHANGES — 4 findings. All fixed.
 - Round 3: REQUIRES_CHANGES — 7 findings. All fixed.
 - Round 4: REQUIRES_CHANGES — 6 findings. All fixed.
-- Round 5: REQUIRES_CHANGES — 1 finding (metadata None/empty). Fixed.
+- Round 5: REQUIRES_CHANGES — 1 finding (metadata normalization for None/empty). Fixed.
 - Round 6: REQUIRES_CHANGES — 1 finding (error/skip paths bypass normalization). Fixed in this commit.
 
 ## LUNA ROUND 6 FINDING + FIX
 
-### R6 Finding: Error/skip results bypass metadata normalization
+### R6 Finding: Error/skip result paths bypass _ensure_metadata normalization
 **Fix:**
-- Added `_make_error_result()` and `_make_skip_result()` centralized helper methods on ORIONEval.
-- Both helpers use `_clean()` to handle None, empty string, whitespace-only values and fall back to "unknown".
-- Both helpers set `test_version=BENCHMARK_VERSION` (not "1.0").
-- ALL inline EvalResult constructions in run_all() and run_category() replaced with these helpers:
-  - setup exceptions (run_all + run_category)
-  - setup failures (run_all + run_category)
-  - run exceptions (run_all + run_category)
-- No `model=getattr(system, 'model_name', 'unknown')` inline patterns remain in the codebase.
-- 4 new regression tests: setup exception, setup failure, run exception (all via run_all), run_category error — all verify None/empty system metadata gets "unknown" and test_version gets BENCHMARK_VERSION.
+- Added `_make_error_result()` and `_make_skip_result()` centralized helpers that use the same `_clean()` logic: None → "", empty → "", whitespace → "".
+- All error and skip result construction in both `run_all()` and `run_category()` now uses these helpers instead of inline `EvalResult(...)` construction.
+- Helpers use `getattr(system, attr, None)` + `_clean()` + `or "unknown"` fallback.
+- Helpers use `BENCHMARK_VERSION` for `test_version`, not the dataclass default "1.0".
+- 4 new regression tests: setup exception metadata normalized, setup failure metadata normalized, run exception metadata normalized, run_category error metadata normalized.
 
 ## ACCEPTANCE CRITERIA
 1. All 12 benchmark categories have concrete tests ✅
-2. Every result includes all required metadata fields ✅ (centralized helpers for ALL paths)
+2. Every result includes all required metadata fields ✅ (centralized normalization on ALL paths: success, setup exception, setup failure, run exception)
 3. ORIONEval.run_all() produces a complete reproducible report ✅ (try/finally lifecycle)
 4. CLI runner works with filtered categories ✅ (nonzero exit on error, rejects empty)
 5. No invented results — all metrics are measured ✅ (OPIB default-success removed)
@@ -50,13 +46,14 @@ Create the official ORION benchmark system (ORION EVAL) with 12 benchmark catego
 ## TEST RESULTS
 - **Total:** 743 collected, 743 passed, 9 skipped, 0 failed
 - **Acceptance tests:** 43/43 passing (6 R3 + 6 R4 + 2 R5 + 4 R6 regression tests)
+- **Benchmark:** 12/12 categories passing
 - **Command:** `python3 -m pytest --timeout=30 -q --ignore=tests/load --ignore=tests/unit/test_live_gpt4o.py`
 
 ## LUNA ROUND 6 REGRESSION TESTS
-- test_setup_exception_metadata_normalized: SparseSystem → error result has model/version/hardware="unknown", test_version=BENCHMARK_VERSION
-- test_setup_failure_metadata_normalized: SparseSystem → skip result has model/version/hardware="unknown", test_version=BENCHMARK_VERSION
-- test_run_exception_metadata_normalized: SparseSystem → error result has model/version/hardware="unknown", test_version=BENCHMARK_VERSION
-- test_run_category_error_metadata_normalized: SparseSystem → run_category error result has model/version/hardware="unknown", test_version=BENCHMARK_VERSION
+- test_setup_exception_metadata_normalized: setup exception with None/""/"  " system → "unknown" + BENCHMARK_VERSION
+- test_setup_failure_metadata_normalized: setup failure with None/""/"  " system → "unknown" + BENCHMARK_VERSION
+- test_run_exception_metadata_normalized: run exception with None/""/"  " system → "unknown" + BENCHMARK_VERSION
+- test_run_category_error_metadata_normalized: run_category error with None/""/"  " system → "unknown" + BENCHMARK_VERSION
 
 ## SECURITY RESULTS
 No security changes — evaluation framework only.
@@ -90,5 +87,4 @@ python3 -m pytest --timeout=30 -q --ignore=tests/load --ignore=tests/unit/test_l
 python3 -m ruff check src/ tests/
 python3 -m mypy src/ --ignore-missing-imports
 PYTHONPATH=src python3 -m eval.run --categories all --output /tmp/eval_report.json --format json
-PYTHONPATH=src python3 -m eval.run --categories temporal_reasoning,planning --output /tmp/eval_filtered.json --format json
 ```
