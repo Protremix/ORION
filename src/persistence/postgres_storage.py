@@ -18,7 +18,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-import asyncpg
+try:
+    import asyncpg
+except ImportError:
+    asyncpg = None
 
 from src.persistence.storage import (
     GENESIS_HASH,

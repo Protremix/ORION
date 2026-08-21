@@ -5,7 +5,11 @@ and pgvector memory embeddings.
 """
 
 from src.persistence.pgvector_store import PgVectorStore
-from src.persistence.postgres_storage import PostgresStorageManager
+
+try:
+    from src.persistence.postgres_storage import PostgresStorageManager
+except ImportError:
+    PostgresStorageManager = None
 from src.persistence.storage import (
     ActionHistoryRecord,
     AuditEventRecord,

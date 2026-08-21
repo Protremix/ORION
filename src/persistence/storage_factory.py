@@ -12,7 +12,10 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
-from src.persistence.postgres_storage import PostgresStorageManager
+try:
+    from src.persistence.postgres_storage import PostgresStorageManager
+except ImportError:
+    PostgresStorageManager = None
 from src.persistence.storage import StorageManager
 
 logger = logging.getLogger("orion.persistence.factory")
@@ -41,7 +44,7 @@ class StorageFactory:
         Returns:
             An initialized PostgresStorageManager or StorageManager instance.
         """
-        if prefer_postgres:
+        if prefer_postgres and PostgresStorageManager is not None:
             try:
                 config = dict(pg_config or {})
                 if pg_dsn:
