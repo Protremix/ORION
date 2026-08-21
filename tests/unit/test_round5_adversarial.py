@@ -1111,10 +1111,10 @@ class TestReplayCacheCardinalityCap:
 # ============================================================================
 
 class TestReplayCacheBoundAdversarial:
-    """Replay cache must have a hard count-based cap to prevent memory exhaustion (Luna Round 10)."""
+    """Replay cache must have a hard count-based cap with oldest-entry eviction (Luna Round 11)."""
 
-    def test_replay_cache_capped_at_1000(self):
-        """Cache must not exceed 1000 entries even under credential flooding."""
+    def test_replay_cache_evicts_oldest_at_cap(self):
+        """Cache must evict oldest entries when exceeding 10,000 — not reject new ones."""
         import hashlib
         import hmac
         import os
@@ -1134,31 +1134,56 @@ class TestReplayCacheBoundAdversarial:
 
         sim = VehicleSimulation()
 
-        # Flood the cache with 1100 distinct valid credentials
+        # Pre-populate cache with 10,001 entries to exceed the 10,000 cap
+        # This simulates 10,001 distinct valid credential uses
         key = os.environ["ORION_EMERGENCY_HMAC_KEY"]
-        for i in range(1100):
-            ts = time.time() + i * 0.001  # Distinct timestamps
+        first_cred = None
+        for i in range(10001):
+            ts = time.time() - 30 + i * 0.001  # Past timestamps within 60s window
             msg = f"reset_emergency:{ts}"
             sig = hmac.new(key.encode(), msg.encode(), hashlib.sha256).hexdigest()
             cred = f"{ts}:{sig}"
+            if i == 0:
+                first_cred = cred
+            sim._used_reset_credentials[cred] = time.time()
 
-            sim.ego_vehicle.set_state("EMERGENCY")
-            sim.system_status = "EMERGENCY"
+        assert len(sim._used_reset_credentials) == 10001
 
-            action_id = generate_contract_id()
-            proposal = ActionProposal(
-                action_id=action_id,
-                action_type="reset_emergency",
-                target_entity="ego_vehicle",
-                action_category=ActionCategory.DIGITAL,
-                action_parameters={"hmac_credential": cred},
-                risk_tier=RiskTier.LOW,
-                safety_approved=True,
-                safety_auth_token=issue_safety_token(action_id, "reset_emergency", "ego_vehicle"),
-            )
-            sim.propose_action(proposal)
+        # Now call propose_action with a new valid credential
+        # This triggers the production pruning + eviction logic
+        ts = time.time()
+        msg = f"reset_emergency:{ts}"
+        sig = hmac.new(key.encode(), msg.encode(), hashlib.sha256).hexdigest()
+        new_cred = f"{ts}:{sig}"
 
-        # Cache must not exceed 1000 entries
-        assert len(sim._used_reset_credentials) <= 1000, (
-            f"Replay cache exceeded 1000 entries: {len(sim._used_reset_credentials)}"
+        sim.ego_vehicle.set_state("EMERGENCY")
+        sim.system_status = "EMERGENCY"
+
+        action_id = generate_contract_id()
+        proposal = ActionProposal(
+            action_id=action_id,
+            action_type="reset_emergency",
+            target_entity="ego_vehicle",
+            action_category=ActionCategory.DIGITAL,
+            action_parameters={"hmac_credential": new_cred},
+            risk_tier=RiskTier.LOW,
+            safety_approved=True,
+            safety_auth_token=issue_safety_token(action_id, "reset_emergency", "ego_vehicle"),
         )
+        result = sim.propose_action(proposal)
+
+        # Cache must not exceed 10,000 entries (production eviction ran)
+        assert len(sim._used_reset_credentials) <= 10000, (
+            f"Replay cache exceeded 10,000 entries: {len(sim._used_reset_credentials)}"
+        )
+
+        # Oldest entry must have been evicted — FIFO eviction via popitem(last=False)
+        assert first_cred not in sim._used_reset_credentials, (
+            "Oldest credential was not evicted — eviction is not FIFO"
+        )
+
+        # New credential must be in cache (was accepted)
+        assert new_cred in sim._used_reset_credentials, (
+            "New credential was not added to cache"
+        )
+
