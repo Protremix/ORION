@@ -252,6 +252,18 @@ class RateLimitStage:
         self._last_command_map: Dict[str, Tuple[Dict[str, float], float]] = {}
 
     def verify(self, command: ActuatorCommand) -> StageResult:
+        # Change #6: NaN/Infinity check MUST come BEFORE stop-type shortcut.
+        # Previously, stop commands with NaN parameters bypassed all finite checks.
+        # Now: non-finite values are rejected regardless of command type.
+        for param_name, val in command.parameters.items():
+            if not isinstance(val, (int, float)) or not math.isfinite(val):
+                return StageResult(
+                    stage=VerificationStage.RATE_LIMIT,
+                    passed=False,
+                    reason=f"Parameter '{param_name}' has non-finite value {val} — rejected (Change #6: checked before shortcut)",
+                    details={"parameter": param_name, "value": val}
+                )
+
         # Emergency stops (zero_command, emergency_stop, stop, safe_state) bypass rate check
         # But is_emergency flag alone is NOT sufficient — must also be a stop-type command
         if command.command_type in ("zero_command", "emergency_stop", "stop", "safe_state"):
@@ -261,16 +273,6 @@ class RateLimitStage:
                 reason="Emergency stop command bypasses rate limit check"
             )
         # is_emergency flag alone does NOT bypass rate limiting for non-stop commands
-
-        # NaN check for all parameters
-        for param_name, val in command.parameters.items():
-            if not isinstance(val, (int, float)) or not math.isfinite(val):
-                return StageResult(
-                    stage=VerificationStage.RATE_LIMIT,
-                    passed=False,
-                    reason=f"Parameter '{param_name}' has non-finite value {val} — rejected",
-                    details={"parameter": param_name, "value": val}
-                )
 
         if not command.parameters:
             return StageResult(
@@ -346,6 +348,17 @@ class RangeLimitStage:
         self.limits = limits
 
     def verify(self, command: ActuatorCommand) -> StageResult:
+        # Change #6: Reject non-finite values before range comparison.
+        # NaN comparisons (val < min, val > max) return False in Python,
+        # so NaN would silently pass range checks without this explicit check.
+        for param_name, val in command.parameters.items():
+            if not isinstance(val, (int, float)) or not math.isfinite(val):
+                return StageResult(
+                    stage=VerificationStage.RANGE_LIMIT,
+                    passed=False,
+                    reason=f"Parameter '{param_name}' has non-finite value {val} — rejected before range check (Change #6)",
+                    details={"parameter": param_name, "value": val}
+                )
         for param_name, val in command.parameters.items():
             limit = _get_parameter_limit(command.domain, param_name, self.limits)
             if limit is None:
