@@ -7,7 +7,7 @@ ORION — Physical Intelligence OS
 002 — ORION Evaluation System
 
 ## COMMIT SHA
-(to be filled after commit)
+fd71d59
 
 ## BRANCH
 main
