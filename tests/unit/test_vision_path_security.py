@@ -120,7 +120,10 @@ class TestVisionPathSecurity:
                 adapter._prepare_image(VisionRequest(image_path="../../etc/passwd"))
 
     def test_url_loading_not_affected_by_path_validation(self):
+        """Change #10: HTTPS URLs are now downloaded locally, not passed through.
+        Use a data URL to verify URL-based image loading still works independently
+        of path validation."""
         adapter = GPT4oVisionAdapter(api_key="test-key")
-        url = "https://example.com/image.png"
+        url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAADAAFczf9pAAAAAElFTkSuQmCC"
         res = adapter._prepare_image(VisionRequest(image_url=url))
-        assert res == url
+        assert res.startswith("data:image/")
