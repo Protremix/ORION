@@ -50,7 +50,7 @@ class MockOrionSystem:
         return {"status": "stored"}
 
     def get_world_state(self):
-        return {"position": [0, 0, 0], "velocity": [10, 0, 0]}
+        return {"position": 50, "velocity": 10}
 
     def predict(self, state, t=0):
         return {"position": state.get("velocity", 0) * t, "velocity": state.get("velocity", 0)}

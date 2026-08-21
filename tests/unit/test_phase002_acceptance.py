@@ -237,6 +237,8 @@ class TestBenchmarkValidation:
     def test_wrong_world_state_position_fails(self):
         """System returning wrong predicted position should get reduced score."""
         class WrongPositionSystem(MockOrionSystem):
+            def get_world_state(self):
+                return {"position": 0, "velocity": 10}  # Wrong position (should be 50)
             def predict(self, state, t=0):
                 return {"position": 0, "velocity": 10}  # Wrong position (should be 50)
 
@@ -302,6 +304,105 @@ class TestCLIExecution:
         finally:
             if os.path.exists(output_path):
                 os.unlink(output_path)
+
+
+class TestLunaRound3Regressions:
+    """Tests for Luna Round 3 specific findings."""
+
+    def test_run_category_setup_failure_emits_skipped(self):
+        """run_category() must emit SKIPPED result when setup() returns False."""
+        from eval import EvaluationTest
+
+        class FailSetupTest(EvaluationTest):
+            @property
+            def metric(self):
+                return EvalMetric(name="fail_setup", category=EvalCategory.PLANNING, description="Fail setup")
+
+            def setup(self):
+                return False
+
+            def teardown(self):
+                pass
+
+            def run(self, system):
+                return EvalResult(metric=self.metric, status=EvalStatus.PASSED, value=1.0)
+
+        system = MockOrionSystem()
+        eval_sys = create_orion_eval()
+        eval_sys.register_test(FailSetupTest())
+        results = eval_sys.run_category(EvalCategory.PLANNING, system)
+        skipped = [r for r in results if r.status == EvalStatus.SKIPPED]
+        assert len(skipped) >= 1, "Expected at least one SKIPPED result from setup failure"
+        for r in skipped:
+            assert r.model != "", "Skipped result missing model"
+            assert r.failure_reason == "Setup failed"
+
+    def test_negated_logical_inference_rejected(self):
+        """'not c is true' should not be accepted as correct."""
+        class NegatedLogicSystem(MockOrionSystem):
+            def reason(self, prompt):
+                return "not c is true"
+
+        system = NegatedLogicSystem()
+        eval_sys = create_orion_eval()
+        report = eval_sys.run_all(system)
+        logic = [r for r in report.results if r.metric.category == EvalCategory.TEMPORAL_REASONING][0]
+        assert logic.value == 0.0, f"'not c is true' should be rejected, got {logic.value}"
+
+    def test_graceful_string_does_not_pass_recovery(self):
+        """'graceful' string should not award full score in error recovery."""
+        class GracefulSystem:
+            model_name = "graceful-test"
+            version = "0.0.1"
+            hardware = "test"
+            def recover(self, error):
+                return "graceful"
+            def health_check(self):
+                return "graceful"
+
+        system = GracefulSystem()
+        eval_sys = create_orion_eval()
+        report = eval_sys.run_all(system)
+        recovery = [r for r in report.results if r.metric.category == EvalCategory.ERROR_RECOVERY][0]
+        assert recovery.value < 1.0, f"'graceful' should not get full score, got {recovery.value}"
+
+    def test_no_safety_interface_fails(self):
+        """System without execute() should fail safety decision, not pass."""
+        class NoSafetySystem:
+            model_name = "no-safety"
+            version = "0.0.1"
+            hardware = "test"
+            # No execute method at all
+
+        system = NoSafetySystem()
+        eval_sys = create_orion_eval()
+        report = eval_sys.run_all(system)
+        safety = [r for r in report.results if r.metric.category == EvalCategory.SAFETY_DECISIONS][0]
+        assert safety.value == 0.0, f"No safety interface should fail, got {safety.value}"
+
+    def test_non_numeric_world_position_fails(self):
+        """Non-numeric position (list) should fail, not pass at 0.8."""
+        class ListPositionSystem(MockOrionSystem):
+            def get_world_state(self):
+                return {"position": [0, 0, 0], "velocity": [10, 0, 0]}
+
+        system = ListPositionSystem()
+        eval_sys = create_orion_eval()
+        report = eval_sys.run_all(system)
+        world = [r for r in report.results if r.metric.category == EvalCategory.WORLD_STATE_UNDERSTANDING][0]
+        assert world.value < 0.8, f"Non-numeric position should not pass, got {world.value}"
+
+    def test_exception_string_not_safety_decision(self):
+        """Exception containing 'blocked' should not be treated as safety pass."""
+        class ExceptionSafetySystem(MockOrionSystem):
+            def execute(self, action):
+                raise RuntimeError("operation blocked by internal error")
+
+        system = ExceptionSafetySystem()
+        eval_sys = create_orion_eval()
+        report = eval_sys.run_all(system)
+        safety = [r for r in report.results if r.metric.category == EvalCategory.SAFETY_DECISIONS][0]
+        assert safety.value == 0.0, f"Exception string should not pass safety, got {safety.value}"
 
 
 class TestReproducibility:

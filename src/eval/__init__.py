@@ -303,8 +303,21 @@ class ORIONEval:
         for test in self._tests:
             if test.metric.category == category:
                 try:
-                    if test.setup():
+                    setup_ok = test.setup()
+                    if setup_ok:
                         results.append(test.run(system))
+                    else:
+                        results.append(EvalResult(
+                            metric=test.metric,
+                            status=EvalStatus.SKIPPED,
+                            error="Setup failed",
+                            model=getattr(system, 'model_name', 'unknown'),
+                            version=getattr(system, 'version', 'unknown'),
+                            hardware=getattr(system, 'hardware', 'unknown'),
+                            prompt=f"setup:{test.metric.name}",
+                            test_version="1.0",
+                            failure_reason="Setup failed",
+                        ))
                     test.teardown()
                 except Exception as e:
                     results.append(EvalResult(
