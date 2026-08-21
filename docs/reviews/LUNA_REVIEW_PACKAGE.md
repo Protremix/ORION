@@ -310,3 +310,60 @@ docs/ (47 files)
 ├── SAFETY_LAYER_V3_SPEC.md
 ├── and more
 ```
+
+---
+
+## LUNA REVIEW RESULTS — 2026-08-21
+
+### Review Method
+Luna (GPT-4o) independently reviewed the complete critical source code, test files, CI configuration, and dependency manifests. Review was conducted in 3 parts due to API rate limits:
+
+- Part 1a: Security source files (permissions.py, action_arbitration.py, Dockerfile, gpt4o_adapters.py)
+- Part 1b: Policy key, contracts, safety enforcement (policy_manager.py, contracts.py, safety_enforcement.py)
+- Part 2: Evaluation system (eval/__init__.py, benchmark_tests.py)
+- Part 3: Test files, CI, config (run.py, ci.yml, pyproject.toml, 4 test files)
+
+### Luna's Findings
+
+#### TASK 001B Security Fixes
+| Criterion | Luna Verdict | Evidence |
+|-----------|-------------|----------|
+| HIGH-A: Persistent permission registry | SATISFIED | SQLite persistence in permissions.py, save_to_storage/load_from_storage methods verified |
+| HIGH-B+C: Financial/legal enforcement | SATISFIED | action_arbitration.py blocks FINANCIAL/LEGAL/STRATEGIC with human_approval_signature requirement |
+| HIGH-D: Env-based policy key | SATISFIED | policy_manager.py loads from ORION_POLICY_KEY env var, ephemeral key in dev only, production raises ValueError |
+| HIGH-E: Docker non-root user | SATISFIED | Dockerfile creates 'orion' user (UID 1000), USER orion directive, --chown=orion:orion |
+| HIGH-F: Vision path traversal | SATISFIED | gpt4o_adapters.py validate_image_path() resolves against base dir, blocks traversal |
+| Safety enforcement (deny-by-default) | SATISFIED | CBF-based, fails to FALLBACK/EMERGENCY, audit logging present |
+
+**No bypass vectors found by Luna.**
+
+#### Phase 002 Evaluation System
+| Criterion | Luna Verdict | Evidence |
+|-----------|-------------|----------|
+| 12 benchmark categories in EvalCategory | SATISFIED | All 12 + pre-existing categories present |
+| 12 concrete benchmark test classes | SATISFIED | One per category, all defined in benchmark_tests.py |
+| EvalResult metadata fields | SATISFIED | All 9 required fields present |
+| to_dict() serialization | SATISFIED | Both EvalResult and EvalReport have to_dict() |
+| No invented results | SATISFIED | time.perf_counter() + tracemalloc used |
+| ORIONEval.run_all() | SATISFIED | Produces complete report with summary and category scores |
+
+#### Tests, CI, Config
+| Criterion | Luna Verdict | Evidence |
+|-----------|-------------|----------|
+| CLI runner | SATISFIED | Produces JSON+MD reports |
+| CI no suppressed failures | SATISFIED | No || true, runs lint+type+tests |
+| pyproject.toml dependencies | SATISFIED | Correctly declared |
+| Tests test implementations | SATISFIED | Non-trivial assertions, real behavior verification |
+| Security tests | SATISFIED | Permission persistence, action categories, vision path all tested |
+| Eval tests | SATISFIED | Categories, metadata, execution, report gen, CLI all tested |
+
+### Luna Final Verdict
+
+**TASK 001B: APPROVED**
+**Phase 002: APPROVED**
+
+"All requirements have been satisfied, and the code and tests appear to be well-structured and comprehensive."
+
+### Status Update
+- TASK 001B: LUNA REVIEW PASSED → VERIFIED
+- Phase 002: LUNA REVIEW PASSED → VERIFIED
