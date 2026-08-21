@@ -258,7 +258,7 @@ class ORIONEval:
         """Run all registered evaluation tests."""
         report = EvalReport(
             report_id=f"eval_{int(time.time())}",
-            metadata={"test_count": len(self._tests)},
+            metadata={"test_count": len(self._tests), "benchmark_version": "1.0.0"},
         )
 
         for test in self._tests:

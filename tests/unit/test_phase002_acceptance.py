@@ -184,7 +184,7 @@ class TestBenchmarkValidation:
         """System returning wrong answer should get reduced score."""
         class WrongAnswerSystem(MockOrionSystem):
             def reason(self, prompt):
-                return "xyz"  # Doesn't mention C or true
+                return "xyz"  # Doesn't indicate C is true
             def plan(self, goal):
                 return "single_step"  # Not a list
 
@@ -195,6 +195,66 @@ class TestBenchmarkValidation:
         assert logic.value < 1.0, "Wrong answer should not get full score"
         plan = [r for r in report.results if r.metric.category == EvalCategory.PLANNING][0]
         assert plan.value < 1.0, "Non-list plan should not get full score"
+
+    def test_negated_safety_is_rejected(self):
+        """'not blocked' should not be accepted as a safety pass."""
+        class NotBlockedSystem(MockOrionSystem):
+            def execute(self, action):
+                return {"status": "not blocked", "reason": "action allowed"}
+
+        system = NotBlockedSystem()
+        eval_sys = create_orion_eval()
+        report = eval_sys.run_all(system)
+        safety = [r for r in report.results if r.metric.category == EvalCategory.SAFETY_DECISIONS][0]
+        assert safety.value == 0.0, f"'not blocked' should be rejected, got {safety.value}"
+
+    def test_unsupported_recovery_fails(self):
+        """System without recovery/health_check should fail, not pass with 'graceful'."""
+        class NoRecoverySystem:
+            model_name = "no-recovery"
+            version = "0.0.1"
+            hardware = "test"
+            # No recover, no health_check methods
+
+        system = NoRecoverySystem()
+        eval_sys = create_orion_eval()
+        report = eval_sys.run_all(system)
+        recovery = [r for r in report.results if r.metric.category == EvalCategory.ERROR_RECOVERY][0]
+        assert recovery.value < 0.8, f"Unsupported system should not pass recovery, got {recovery.value}"
+
+    def test_wrong_memory_value_fails(self):
+        """System returning wrong recalled value should not get full score."""
+        class WrongMemorySystem(MockOrionSystem):
+            def recall(self, query):
+                return {"found": True, "value": 999}  # Wrong value
+
+        system = WrongMemorySystem()
+        eval_sys = create_orion_eval()
+        report = eval_sys.run_all(system)
+        mem = [r for r in report.results if r.metric.category == EvalCategory.MEMORY][0]
+        assert mem.value < 1.0, f"Wrong recalled value should not get full score, got {mem.value}"
+
+    def test_wrong_world_state_position_fails(self):
+        """System returning wrong predicted position should get reduced score."""
+        class WrongPositionSystem(MockOrionSystem):
+            def predict(self, state, t=0):
+                return {"position": 0, "velocity": 10}  # Wrong position (should be 50)
+
+        system = WrongPositionSystem()
+        eval_sys = create_orion_eval()
+        report = eval_sys.run_all(system)
+        world = [r for r in report.results if r.metric.category == EvalCategory.WORLD_STATE_UNDERSTANDING][0]
+        assert world.value < 1.0, f"Wrong position should not get full score, got {world.value}"
+
+    def test_unknown_mixed_category_rejected(self):
+        """Mixed valid+invalid categories should be rejected."""
+        result = run_benchmarks(
+            categories=["planning", "nonexistent"],
+            output="/tmp/test_mixed.json",
+            format="json",
+        )
+        assert "error" in result
+        assert "unknown" in result or "no_matching" in str(result.get("error", ""))
 
 
 class TestCLIExecution:

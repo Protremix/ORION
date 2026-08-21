@@ -5,7 +5,7 @@ Run benchmarks automatically and produce reproducible reports.
 
 Usage:
     python -m eval.run --categories all --output report.json --format json+md
-    python -m eval.run --categories reasoning,planning --output report.md
+    python -m eval.run --categories temporal_reasoning,planning --output report.md
 
 License: Apache 2.0
 """
@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from eval import EvalCategory, EvalReport, ORIONEval
-from eval.benchmark_tests import __version__, create_all_benchmark_tests, create_orion_eval
+from eval.benchmark_tests import __version__, create_orion_eval
 
 
 class MockOrionSystem:
@@ -35,7 +35,7 @@ class MockOrionSystem:
         self.hardware = "simulation"
 
     def reason(self, prompt: str) -> str:
-        return "conclusion_derived"
+        return "C is true"
 
     def plan(self, goal: str):
         return ["step_1", "step_2", "step_3"]
@@ -44,7 +44,7 @@ class MockOrionSystem:
         return {"status": "blocked", "reason": "Safety Gateway not configured"}
 
     def recall(self, query: str):
-        return {"found": True, "data": "test_event_001"}
+        return {"found": True, "value": 42, "event": "test_event_001"}
 
     def remember(self, data):
         return {"status": "stored"}
@@ -53,7 +53,7 @@ class MockOrionSystem:
         return {"position": [0, 0, 0], "velocity": [10, 0, 0]}
 
     def predict(self, state, t=0):
-        return {"position": [state.get("velocity", 0) * t, 0, 0]}
+        return {"position": state.get("velocity", 0) * t, "velocity": state.get("velocity", 0)}
 
     def perceive(self, inputs):
         return {"text_understood": True, "image_analyzed": True}
@@ -92,11 +92,20 @@ def run_benchmarks(
     # Run all or filtered
     if categories and categories != ["all"]:
         cat_enums = []
+        unknown_cats = []
         for c in categories:
+            matched = False
             for ce in EvalCategory:
                 if ce.value == c or ce.name.lower() == c.lower():
                     cat_enums.append(ce)
+                    matched = True
                     break
+            if not matched:
+                unknown_cats.append(c)
+        if unknown_cats:
+            print(f"ERROR: Unknown categories: {unknown_cats}")
+            print(f"Available: {[c.value for c in EvalCategory]}")
+            return {"error": "unknown_categories", "unknown": unknown_cats}
         if not cat_enums:
             print(f"ERROR: No matching categories found for {categories}")
             print(f"Available: {[c.value for c in EvalCategory]}")
