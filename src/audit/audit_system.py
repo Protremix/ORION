@@ -501,6 +501,9 @@ class AuditLog:
             Exception: If action_fn raises an exception, also invoking rollback.
         """
         # 1. Execute action
+        # Change #12: When an exception occurs during action execution, we MUST
+        # record a FAILED audit event BEFORE re-raising. Previously, the exception
+        # escaped without any audit trail — the failure was invisible in the log.
         try:
             result = action_fn()
         except Exception as act_err:
@@ -509,6 +512,25 @@ class AuditLog:
                 rollback_fn()
             except Exception as rb_err:
                 logger.critical("Rollback failed after action error: %s", rb_err)
+            # Record the failure in the audit log before re-raising
+            try:
+                fail_event = self.create_event(
+                    event_type=event_type,
+                    actor=actor,
+                    action=action,
+                    target=target,
+                    outcome=Outcome.FAILED,
+                    risk_tier=risk_tier,
+                    safety_decision=SafetyDecision.REJECTED,
+                    state_revision=state_revision,
+                    correlation_id=correlation_id,
+                    payload={**(payload or {}), "error": str(act_err), "rolled_back": True},
+                )
+                self.append_event(fail_event)
+            except Exception as audit_err:
+                logger.critical(
+                    "Failed to log FAILED audit event for action '%s': %s", action, audit_err
+                )
             raise act_err
 
         # 2. Build audit event

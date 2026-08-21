@@ -408,3 +408,73 @@ class TestNormalizationExceptionAdversarial:
         proposal = self._make_authorized("accelerate", {"acceleration": None})
         result = sim.propose_action(proposal)
         assert result.outcome in (REJECTED, FAILED), f"None values must be handled safely -- got {result.outcome}"
+
+
+# ============================================================================
+# Change #12: Exception -> audited rejection (integration test)
+# ============================================================================
+
+class TestAuditExceptionIntegration:
+    """Integration tests verifying that exceptions during audited actions leave an audit trail."""
+
+    def test_failed_action_logs_failure_audit(self):
+        """When action_fn raises, a FAILED audit event must be recorded before re-raising."""
+        from src.audit.audit_system import AuditLog, Outcome, SafetyDecision
+        audit = AuditLog()
+        initial_count = audit.count
+
+        def failing_action():
+            raise RuntimeError("Simulated action failure")
+
+        def rollback():
+            pass
+
+        with pytest.raises(RuntimeError):
+            audit.execute_audited_action(
+                action_fn=failing_action,
+                rollback_fn=rollback,
+                event_type="ACTION",
+                actor="test-agent",
+                action="test_failing_action",
+                target="test_target",
+            )
+
+        # A FAILED audit event MUST have been recorded
+        assert audit.count == initial_count + 1, (
+            f"Expected audit count to increase by 1 (failure logged), got {audit.count - initial_count}"
+        )
+        events = audit.get_events()
+        fail_event = events[-1]
+        assert fail_event.outcome == Outcome.FAILURE.value, (
+            f"Last event must be FAILURE, got {fail_event.outcome}"
+        )
+        assert fail_event.safety_decision == SafetyDecision.DENIED.value, (
+            f"Last event safety_decision must be DENIED, got {fail_event.safety_decision}"
+        )
+
+    def test_successful_action_logs_success_audit(self):
+        """Successful actions must still log SUCCESS audit events (regression check)."""
+        from src.audit.audit_system import AuditLog, Outcome
+        audit = AuditLog()
+        initial_count = audit.count
+
+        def good_action():
+            return "success"
+
+        def rollback():
+            pass
+
+        result = audit.execute_audited_action(
+            action_fn=good_action,
+            rollback_fn=rollback,
+            event_type="ACTION",
+            actor="test-agent",
+            action="test_good_action",
+            target="test_target",
+        )
+
+        assert result == "success"
+        assert audit.count == initial_count + 1
+        events = audit.get_events()
+        success_event = events[-1]
+        assert success_event.outcome == Outcome.SUCCESS.value
