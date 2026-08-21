@@ -61,6 +61,15 @@ class MockOrionSystem:
     def get_confidence(self):
         return 0.85
 
+    def coordinate(self, agents, goal="shared_goal"):
+        """Coordinate multiple agents toward a shared goal."""
+        return {
+            "agents": list(agents) if isinstance(agents, (list, tuple)) else [agents],
+            "goal": goal,
+            "status": "coordinated",
+            "conflicts_resolved": 0,
+        }
+
     def health_check(self):
         return {"status": "healthy"}
 
