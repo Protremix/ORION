@@ -405,6 +405,122 @@ class TestLunaRound3Regressions:
         assert safety.value == 0.0, f"Exception string should not pass safety, got {safety.value}"
 
 
+class TestLunaRound4Regressions:
+    """Tests for Luna Round 4 specific findings."""
+
+    def test_teardown_always_called_on_setup_exception(self):
+        """teardown() must be called even when setup() raises."""
+        from eval import EvaluationTest
+        teardown_called = []
+
+        class SetupExceptionTest(EvaluationTest):
+            @property
+            def metric(self):
+                return EvalMetric(name="setup_exc", category=EvalCategory.PLANNING, description="Setup exception")
+
+            def setup(self):
+                raise RuntimeError("setup crashed")
+
+            def teardown(self):
+                teardown_called.append(True)
+
+            def run(self, system):
+                return EvalResult(metric=self.metric, status=EvalStatus.PASSED, value=1.0)
+
+        system = MockOrionSystem()
+        eval_sys = create_orion_eval()
+        eval_sys.register_test(SetupExceptionTest())
+        report = eval_sys.run_all(system)
+        error_results = [r for r in report.results if r.status == EvalStatus.ERROR]
+        assert len(error_results) > 0, "Expected ERROR from setup exception"
+        assert len(teardown_called) > 0, "teardown() should have been called"
+
+    def test_teardown_always_called_on_run_exception(self):
+        """teardown() must be called even when run() raises."""
+        from eval import EvaluationTest
+        teardown_called = []
+
+        class RunExceptionTest(EvaluationTest):
+            @property
+            def metric(self):
+                return EvalMetric(name="run_exc", category=EvalCategory.PLANNING, description="Run exception")
+
+            def setup(self):
+                return True
+
+            def teardown(self):
+                teardown_called.append(True)
+
+            def run(self, system):
+                raise RuntimeError("run crashed")
+
+        system = MockOrionSystem()
+        eval_sys = create_orion_eval()
+        eval_sys.register_test(RunExceptionTest())
+        report = eval_sys.run_all(system)
+        error_results = [r for r in report.results if r.status == EvalStatus.ERROR]
+        assert len(error_results) > 0, "Expected ERROR from run exception"
+        assert len(teardown_called) > 0, "teardown() should have been called"
+
+    def test_custom_test_metadata_enforced(self):
+        """Custom tests returning EvalResult without metadata should get it filled."""
+        from eval import EvaluationTest
+
+        class SparseResultTest(EvaluationTest):
+            @property
+            def metric(self):
+                return EvalMetric(name="sparse", category=EvalCategory.PLANNING, description="Sparse result")
+
+            def setup(self):
+                return True
+
+            def teardown(self):
+                pass
+
+            def run(self, system):
+                return EvalResult(metric=self.metric, status=EvalStatus.PASSED, value=1.0)
+
+        system = MockOrionSystem()
+        eval_sys = create_orion_eval()
+        eval_sys.register_test(SparseResultTest())
+        results = eval_sys.run_category(EvalCategory.PLANNING, system)
+        sparse = [r for r in results if r.metric.name == "sparse"][0]
+        assert sparse.model == "orion-eval-mock", f"Expected model filled, got '{sparse.model}'"
+        assert sparse.version != "", "Version should be filled"
+        assert sparse.hardware != "", "Hardware should be filled"
+        assert sparse.prompt != "", "Prompt should be filled"
+
+    def test_cli_nonzero_exit_on_unknown_category(self):
+        """CLI should exit nonzero for unknown categories."""
+        result = run_benchmarks(
+            categories=["nonexistent"],
+            output="/tmp/test_nonzero.json",
+            format="json",
+        )
+        assert "error" in result
+
+    def test_empty_category_filter_rejected(self):
+        """Empty category list should be rejected, not expand to all."""
+        result = run_benchmarks(
+            categories=[],
+            output="/tmp/test_empty.json",
+            format="json",
+        )
+        assert "error" in result
+
+    def test_opib_unimplemented_phase_fails(self):
+        """OPIB phase without system implementation should FAIL, not pass."""
+        from eval import OPIB, OPIBScenario
+        bench = OPIB()
+        bench.add_scenario(OPIBScenario(
+            scenario_id="s1", name="Test", description="Test",
+            domain="industrial", phases=["observe"],
+        ))
+        results = bench.run_benchmark(system=None)
+        assert results[0].success is False, "Unimplemented OPIB phase should fail"
+        assert results[0].score == 0.0
+
+
 class TestReproducibility:
     """Test that reports are structurally reproducible."""
 

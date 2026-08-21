@@ -90,6 +90,9 @@ def run_benchmarks(
     system = MockOrionSystem()
 
     # Run all or filtered
+    if categories is not None and len(categories) == 0:
+        print("ERROR: Empty category filter specified. Use 'all' or specify categories.")
+        return {"error": "empty_categories"}
     if categories and categories != ["all"]:
         cat_enums = []
         unknown_cats = []
@@ -204,7 +207,9 @@ def main():
     args = parser.parse_args()
 
     categories = [c.strip() for c in args.categories.split(",")] if args.categories != "all" else None
-    run_benchmarks(categories=categories, output=args.output, format=args.format)
+    result = run_benchmarks(categories=categories, output=args.output, format=args.format)
+    if isinstance(result, dict) and "error" in result:
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

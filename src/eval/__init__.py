@@ -19,7 +19,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +254,23 @@ class ORIONEval:
         """List all registered test metrics."""
         return [t.metric for t in self._tests]
 
+
+    def _ensure_metadata(self, result: EvalResult, system: Any, test: Any) -> EvalResult:
+        """Ensure all required metadata fields are populated on a result."""
+        if not result.model:
+            result.model = getattr(system, 'model_name', 'unknown')
+        if not result.version:
+            result.version = getattr(system, 'version', 'unknown')
+        if not result.hardware:
+            result.hardware = getattr(system, 'hardware', 'unknown')
+        if not result.prompt:
+            result.prompt = f"benchmark:{test.metric.name}"
+        if not result.test_version:
+            result.test_version = "1.0"
+        if not result.failure_reason:
+            result.failure_reason = ""
+        return result
+
     def run_all(self, system: Any) -> EvalReport:
         """Run all registered evaluation tests."""
         report = EvalReport(
@@ -263,24 +280,46 @@ class ORIONEval:
 
         for test in self._tests:
             try:
-                if not test.setup():
-                    report.results.append(EvalResult(
-                        metric=test.metric,
-                        status=EvalStatus.SKIPPED,
-                        error="Setup failed",
-                        model=getattr(system, 'model_name', 'unknown'),
-                        version=getattr(system, 'version', 'unknown'),
-                        hardware=getattr(system, 'hardware', 'unknown'),
-                        prompt=f"setup:{test.metric.name}",
-                        test_version="1.0",
-                        failure_reason="Setup failed",
-                    ))
-                    continue
-
+                setup_ok = test.setup()
+            except Exception as e:
+                logger.error(f"Eval test {test.metric.name} setup error: {e}")
+                report.results.append(EvalResult(
+                    metric=test.metric,
+                    status=EvalStatus.ERROR,
+                    error=str(e),
+                    model=getattr(system, 'model_name', 'unknown'),
+                    version=getattr(system, 'version', 'unknown'),
+                    hardware=getattr(system, 'hardware', 'unknown'),
+                    prompt=f"setup:{test.metric.name}",
+                    test_version="1.0",
+                    failure_reason=f"Setup raised: {e}",
+                ))
+                try:
+                    test.teardown()
+                except Exception:
+                    pass
+                continue
+            if not setup_ok:
+                report.results.append(EvalResult(
+                    metric=test.metric,
+                    status=EvalStatus.SKIPPED,
+                    error="Setup failed",
+                    model=getattr(system, 'model_name', 'unknown'),
+                    version=getattr(system, 'version', 'unknown'),
+                    hardware=getattr(system, 'hardware', 'unknown'),
+                    prompt=f"setup:{test.metric.name}",
+                    test_version="1.0",
+                    failure_reason="Setup failed",
+                ))
+                try:
+                    test.teardown()
+                except Exception:
+                    pass
+                continue
+            try:
                 result = test.run(system)
+                result = self._ensure_metadata(result, system, test)
                 report.results.append(result)
-                test.teardown()
-
             except Exception as e:
                 logger.error(f"Eval test {test.metric.name} error: {e}")
                 report.results.append(EvalResult(
@@ -294,6 +333,11 @@ class ORIONEval:
                     test_version="1.0",
                     failure_reason=str(e),
                 ))
+            finally:
+                try:
+                    test.teardown()
+                except Exception:
+                    pass
 
         return report
 
@@ -304,21 +348,40 @@ class ORIONEval:
             if test.metric.category == category:
                 try:
                     setup_ok = test.setup()
-                    if setup_ok:
-                        results.append(test.run(system))
-                    else:
-                        results.append(EvalResult(
-                            metric=test.metric,
-                            status=EvalStatus.SKIPPED,
-                            error="Setup failed",
-                            model=getattr(system, 'model_name', 'unknown'),
-                            version=getattr(system, 'version', 'unknown'),
-                            hardware=getattr(system, 'hardware', 'unknown'),
-                            prompt=f"setup:{test.metric.name}",
-                            test_version="1.0",
-                            failure_reason="Setup failed",
-                        ))
-                    test.teardown()
+                except Exception as e:
+                    results.append(EvalResult(
+                        metric=test.metric,
+                        status=EvalStatus.ERROR,
+                        error=str(e),
+                        model=getattr(system, 'model_name', 'unknown'),
+                        version=getattr(system, 'version', 'unknown'),
+                        hardware=getattr(system, 'hardware', 'unknown'),
+                        prompt=f"setup:{test.metric.name}",
+                        test_version="1.0",
+                        failure_reason=f"Setup raised: {e}",
+                    ))
+                    continue
+                if not setup_ok:
+                    results.append(EvalResult(
+                        metric=test.metric,
+                        status=EvalStatus.SKIPPED,
+                        error="Setup failed",
+                        model=getattr(system, 'model_name', 'unknown'),
+                        version=getattr(system, 'version', 'unknown'),
+                        hardware=getattr(system, 'hardware', 'unknown'),
+                        prompt=f"setup:{test.metric.name}",
+                        test_version="1.0",
+                        failure_reason="Setup failed",
+                    ))
+                    try:
+                        test.teardown()
+                    except Exception:
+                        pass
+                    continue
+                try:
+                    result = test.run(system)
+                    result = self._ensure_metadata(result, system, test)
+                    results.append(result)
                 except Exception as e:
                     results.append(EvalResult(
                         metric=test.metric,
@@ -331,6 +394,11 @@ class ORIONEval:
                         test_version="1.0",
                         failure_reason=str(e),
                     ))
+                finally:
+                    try:
+                        test.teardown()
+                    except Exception:
+                        pass
         return results
 
 
@@ -468,9 +536,9 @@ class OPIB:
         if method_name and hasattr(system, method_name):
             method = getattr(system, method_name)
             result = method(scenario.initial_state)
-            return bool(result if result is not None else True)
-        # Default: phase passes if system doesn't implement it
-        return True
+            return bool(result) if result is not None else False
+        # Unimplemented phase: system does not support this capability — FAIL
+        return False
 
     def get_results(self) -> List[OPIBResult]:
         """Get results from the last benchmark run."""

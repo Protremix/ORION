@@ -208,31 +208,56 @@ class TestOPIB:
             phases=["observe", "plan", "act"],
         )
         bench.add_scenario(s)
+        # system=None means no OPIB methods available — phases should FAIL
         results = bench.run_benchmark(system=None)
         assert len(results) == 1
-        # With no system methods, phases pass by default
-        assert results[0].success is True
-        assert results[0].score == 1.0
+        assert results[0].success is False
+        assert results[0].score == 0.0
+
+        # With a system that implements all methods, should pass
+        class FullOPIBSystem:
+            def opib_observe(self, state): return True
+            def opib_plan(self, state): return True
+            def opib_act(self, state): return True
+        results2 = bench.run_benchmark(system=FullOPIBSystem())
+        assert results2[0].success is True
+        assert results2[0].score == 1.0
 
     def test_run_benchmark_domain_filter(self):
         bench = OPIB()
+        class FullOPIBSystem:
+            def opib_observe(self, state): return True
+            def opib_act(self, state): return True
+            def opib_plan(self, state): return True
+            def opib_perceive(self, state): return True
+            def opib_reason(self, state): return True
+            def opib_recover(self, state): return True
+            def opib_decide(self, state): return True
         bench.add_scenarios = [
             OPIBScenario(scenario_id="s1", name="Industrial", description="", domain="industrial"),
             OPIBScenario(scenario_id="s2", name="Vehicle", description="", domain="vehicle"),
         ]
         bench.add_scenario(OPIBScenario(scenario_id="s1", name="Industrial", description="", domain="industrial"))
         bench.add_scenario(OPIBScenario(scenario_id="s2", name="Vehicle", description="", domain="vehicle"))
-        results = bench.run_benchmark(system=None, domain="vehicle")
+        results = bench.run_benchmark(system=FullOPIBSystem(), domain="vehicle")
         assert len(results) == 1
         assert results[0].scenario.domain == "vehicle"
 
     def test_summary(self):
         bench = OPIB()
+        class MockOPIBSystem:
+            def opib_observe(self, state): return True
+            def opib_act(self, state): return True
+            def opib_plan(self, state): return True
+            def opib_perceive(self, state): return True
+            def opib_reason(self, state): return True
+            def opib_recover(self, state): return True
+            def opib_decide(self, state): return True
         bench.add_scenario(OPIBScenario(
             scenario_id="s1", name="Test1", description="", domain="industrial",
             phases=["observe", "act"],
         ))
-        bench.run_benchmark(system=None)
+        bench.run_benchmark(system=MockOPIBSystem())
         summary = bench.summary()
         assert summary["total_scenarios"] == 1
         assert summary["passed"] == 1

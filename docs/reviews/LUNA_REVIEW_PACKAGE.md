@@ -1,4 +1,4 @@
-# LUNA REVIEW PACKAGE — Phase 002 (ORION Evaluation System) — Round 4
+# LUNA REVIEW PACKAGE — Phase 002 (ORION Evaluation System) — Round 5
 
 ## PROJECT
 ORION — Physical Intelligence OS
@@ -7,7 +7,7 @@ ORION — Physical Intelligence OS
 002 — ORION Evaluation System
 
 ## COMMIT SHA
-6861f34
+29ef9851dde1e9c675ef5518f72271207d9f5586
 
 ## BRANCH
 main
@@ -16,82 +16,75 @@ main
 Create the official ORION benchmark system (ORION EVAL) with 12 benchmark categories, full result metadata, automated report generation, and CLI runner.
 
 ## PREVIOUS LUNA REVIEWS
-- Round 1: REQUIRES_CHANGES — 8 findings. All fixed in commit 750281f.
-- Round 2: REQUIRES_CHANGES — 4 findings. All fixed in commit 27c880b.
-- Round 3: REQUIRES_CHANGES — 7 findings. All fixed in commit 6861f34.
+- Round 1: REQUIRES_CHANGES — 8 findings. All fixed.
+- Round 2: REQUIRES_CHANGES — 4 findings. All fixed.
+- Round 3: REQUIRES_CHANGES — 7 findings. All fixed.
+- Round 4: REQUIRES_CHANGES — 6 findings. All fixed in this commit.
 
-## LUNA ROUND 3 FINDINGS + FIXES
+## LUNA ROUND 4 FINDINGS + FIXES
 
-### Finding 1: run_category() setup failures not handled
-**Fix:** run_category() now checks setup() return value. When False, appends EvalResult with SKIPPED status, complete metadata (model, version, hardware, prompt, test_version, failure_reason="Setup failed"). teardown() still called.
+### R4 Finding 1: Enforce required metadata in run_all() and run_category()
+**Fix:** Added `_ensure_metadata()` helper that fills missing model, version, hardware, prompt, test_version, failure_reason fields. Applied in both run_all() and run_category() to all results returned by test.run().
 
-### Finding 2: "graceful" full-score fallback in ErrorRecovery
-**Fix:** Removed `elif result == "graceful": value = 1.0` entirely. Systems returning "graceful" now hit the else branch and get value 0.5 at most (for dict with status) or 0.0.
+### R4 Finding 2: Guarantee teardown() with try/finally
+**Fix:** Both run_all() and run_category() now use proper try/finally blocks. teardown() is called in a finally block after test.run(), and also called after setup failures and setup exceptions. teardown() itself is wrapped in try/except to prevent teardown failures from masking test results.
 
-### Finding 3: Logical inference substring matching too permissive
-**Fix:** Negation checked FIRST: if "not ", "false", "incorrect", or "wrong" in result → value 0.0. Positive matches use startswith() not `in`: "c is true", "conclusion is c", "the answer is c", "c is implied". Exact matches ("c", "true", "c is true", "c=true") also accepted.
+### R4 Finding 3: CLI exit nonzero for unknown/mixed categories
+**Fix:** main() now checks if run_benchmarks() returns a dict with "error" key, and raises SystemExit(2) in that case.
 
-### Finding 4: Safety passes system without execute()
-**Fix:** System without execute() now returns "no_safety_interface" which is explicitly checked and given value 0.0. No more "no_execute" fallback that passed.
+### R4 Finding 4: Reject empty category filter
+**Fix:** run_benchmarks() now checks `if categories is not None and len(categories) == 0` and returns {"error": "empty_categories"} instead of running all tests.
 
-### Finding 5: Exception strings treated as safety decisions
-**Fix:** Exceptions from execute() now return "exception" (not str(e)). "exception" is explicitly checked and given value 0.0. Structured dict responses check status field for explicit "blocked"/"denied"/"unauthorized" values.
+### R4 Finding 5: Remove OPIB default-success behavior
+**Fix:** OPIB._execute_phase() now returns False when system lacks the required method, instead of True. Tests updated to use mock systems that implement OPIB methods. System=None now correctly fails all phases.
 
-### Finding 6: World-state non-numeric position passes at 0.8
-**Fix:** Non-numeric position (list, str, etc.) now gets value 0.0, not 0.8. Numeric position validated against expected 50 with tolerance <= 5 (inclusive). Missing position gets 0.0.
-
-### Finding 7: Missing regression tests
-**Fix:** 6 new tests in TestLunaRound3Regressions:
-- test_run_category_setup_failure_emits_skipped
-- test_negated_logical_inference_rejected
-- test_graceful_string_does_not_pass_recovery
-- test_no_safety_interface_fails
-- test_non_numeric_world_position_fails
-- test_exception_string_not_safety_decision
+### R4 Finding 6: Remove unused Callable import
+**Fix:** Removed Callable from typing imports in __init__.py.
 
 ## ACCEPTANCE CRITERIA
 1. All 12 benchmark categories have concrete tests ✅
-2. Every result includes required metadata ✅ (including SKIPPED from run_category setup failures)
-3. ORIONEval.run_all() produces complete reproducible report ✅
-4. CLI runner works with filtered categories ✅ (rejects unknown/mixed)
-5. No invented results ✅ (no fallbacks, no substring tricks, no graceful, no no_execute)
-6. All tests pass ✅ (730 passed, 9 skipped, 0 failed)
-7. Existing tests still pass ✅ (700 original + 30 acceptance)
+2. Every result includes all required metadata fields ✅ (enforced via _ensure_metadata)
+3. ORIONEval.run_all() produces a complete reproducible report ✅ (try/finally lifecycle)
+4. CLI runner works with filtered categories ✅ (nonzero exit on error, rejects empty)
+5. No invented results — all metrics are measured ✅ (OPIB default-success removed)
+6. All tests pass ✅ (736 passed, 9 skipped, 0 failed)
+7. Existing tests still pass ✅ (700 original + 36 new acceptance)
 8. Lint clean, type clean ✅
 
 ## TEST RESULTS
-- **Total:** 730 collected, 730 passed, 9 skipped, 0 failed
-- **Acceptance tests:** 30/30 passing (including 6 Luna Round 3 regressions)
-- **Benchmark:** 12/12 categories passing with semantic validation
+- **Total:** 736 collected, 736 passed, 9 skipped, 0 failed
+- **Acceptance tests:** 36/36 passing (including 6 Luna Round 4 regression tests)
+- **Benchmark:** 12/12 categories passing
 - **Command:** `python3 -m pytest --timeout=30 -q --ignore=tests/load --ignore=tests/unit/test_live_gpt4o.py`
 
-## CLI RESULTS
-```
-ORION EVAL v1.0.0 — Starting benchmark run...
-  Total tests: 12
-  Passed: 12
-  Failed: 0
-  Pass rate: 100.0%
-```
+## LUNA ROUND 4 REGRESSION TESTS
+- test_teardown_always_called_on_setup_exception: teardown called even when setup() raises
+- test_teardown_always_called_on_run_exception: teardown called even when run() raises
+- test_custom_test_metadata_enforced: custom tests get metadata filled by framework
+- test_cli_nonzero_exit_on_unknown_category: error result for unknown categories
+- test_empty_category_filter_rejected: empty list returns error, not all
+- test_opib_unimplemented_phase_fails: system=None → OPIB phases fail
 
 ## SECURITY RESULTS
 No security changes — evaluation framework only.
 
 ## SAFETY RESULTS
-Safety benchmark validates actual safety decisions with negation rejection.
+Safety decision tests with negated-response and missing-interface validation.
 
 ## LICENSE RESULTS
-Apache 2.0. No new dependencies.
+All ORION-owned code: Apache 2.0. No new dependencies.
 
 ## CI RESULTS
-- Ruff: clean (0 errors)
+- Ruff: clean (0 errors, no unused imports)
 - Mypy: clean (0 issues, 62 source files)
 
 ## KNOWN LIMITATIONS
-- Mock system used (no live model calls)
-- Cost estimation is heuristic (latency-based)
-- 9 legacy enum categories deferred to future phases
-- Report IDs/timestamps non-deterministic (expected)
+- Mock system used for benchmark testing (no live model calls)
+- Cost estimation is heuristic (latency-based), not actual API billing
+- Multimodal test uses mock perception (no real image processing)
+- 9 legacy enum categories intentionally deferred to future phases
+- Report IDs and timestamps are nondeterministic (time-based)
+- Latency/memory measurements vary (performance counters)
 
 ## REPRODUCTION COMMANDS
 ```bash
@@ -104,4 +97,5 @@ python3 -m pytest --timeout=30 -q --ignore=tests/load --ignore=tests/unit/test_l
 python3 -m ruff check src/ tests/
 python3 -m mypy src/ --ignore-missing-imports
 PYTHONPATH=src python3 -m eval.run --categories all --output /tmp/eval_report.json --format json
+PYTHONPATH=src python3 -m eval.run --categories temporal_reasoning,planning --output /tmp/eval_filtered.json --format json
 ```

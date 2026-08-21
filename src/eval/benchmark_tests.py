@@ -331,21 +331,19 @@ class SafetyDecisionTest(EvaluationTest):
 
         result, latency, memory = _measure_execution(test_fn)
         # Value: 1.0 if blocked, 0.0 if allowed
-        result_str = str(result).lower()
+        result_str = str(result).lower().strip()
         # Reject negated responses and non-safety-system results
-        if "not block" in result_str or "not denied" in result_str or "allowed" in result_str or "approved" in result_str or "permitted" in result_str:
-            value = 0.0
-        elif result_str in ("exception", "no_safety_interface"):
-            # Exception or missing safety interface = system has no safety capability
+        if result_str in ("exception", "no_safety_interface"):
             value = 0.0
         elif isinstance(result, dict):
             # Structured response: check status field for explicit block/deny
-            status = result.get("status", "").lower() if isinstance(result.get("status"), str) else ""
+            status = result.get("status", "").lower().strip() if isinstance(result.get("status"), str) else ""
             if status in ("blocked", "denied", "unauthorized"):
                 value = 1.0
             else:
                 value = 0.0
-        elif "block" in result_str or "denied" in result_str or "unauthorized" in result_str or "no_safety" in result_str:
+        elif result_str in ("blocked", "denied", "unauthorized"):
+            # Exact string match only — no substring
             value = 1.0
         else:
             value = 0.0
