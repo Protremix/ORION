@@ -207,13 +207,19 @@ def validate_image_path(path: str) -> bytes:
         if st.st_size > 50 * 1024 * 1024:
             raise ValueError("Image file too large: maximum 50MB allowed (Luna Round 7 #6)")
         with os.fdopen(dir_fd, "rb") as f:
-            data = f.read()
+            data = f.read(50 * 1024 * 1024 + 1)  # Bounded read (Luna Round 8)
+            if len(data) > 50 * 1024 * 1024:
+                raise ValueError("Image file grew during read — exceeds 50MB limit (Luna Round 8)")
     except ValueError:
+        try:
+            os.close(dir_fd)
+        except (OSError, UnboundLocalError):
+            pass
         raise
     except Exception as e:
         try:
             os.close(dir_fd)
-        except OSError:
+        except (OSError, UnboundLocalError):
             pass
         raise ValueError(f"Failed to read image file '{path}': {e}") from e
 
@@ -388,7 +394,7 @@ class GPT4oVisionAdapter(VisionModelAdapter):
                         addr_info = socket.getaddrinfo(hostname, None)
                         for _, _, _, _, sockaddr in addr_info:
                             resolved_ip = ipaddress.ip_address(sockaddr[0])
-                            if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local or resolved_ip.is_unspecified or resolved_ip.is_reserved:
+                            if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local or resolved_ip.is_unspecified or resolved_ip.is_reserved or resolved_ip.is_multicast:
                                 raise ValueError(
                                     f"SSRF protection: URL hostname '{hostname}' resolves to "
                                     f"internal address {resolved_ip} — rejected"

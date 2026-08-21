@@ -662,3 +662,159 @@ class TestVehicleSimulatorGateAdversarial:
         sim = VehicleSimulation()
         with pytest.raises(PermissionError, match="Safety Gateway"):
             sim.set_traffic_light_state("tl_1", "GREEN")
+
+
+# ============================================================================
+# Luna Round 8: Additional adversarial tests for remaining bypass vectors
+# ============================================================================
+
+class TestNaNTimestampAdversarial:
+    """NaN timestamp bypass — Luna Round 8."""
+
+    def test_nan_timestamp_rejected(self):
+        """NaN timestamp must be rejected, not silently pass comparisons."""
+        import hashlib
+        import hmac
+        import math
+        import os
+        os.environ.setdefault("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key")
+        sim = VehicleSimulation()
+        sim.ego_vehicle.set_state("EMERGENCY")
+        sim.system_status = "EMERGENCY"
+
+        nan_ts = float("nan")
+        key = os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key")
+        msg = f"reset_emergency:{nan_ts}"
+        sig = hmac.new(key.encode(), msg.encode(), hashlib.sha256).hexdigest()
+        cred = f"{nan_ts}:{sig}"
+
+        proposal = ActionProposal(
+            action_type="reset_emergency",
+            target_entity="ego_vehicle",
+            action_category=ActionCategory.DIGITAL,
+            action_parameters={"hmac_credential": cred},
+            risk_tier=RiskTier.LOW,
+            safety_approved=True,
+            safety_auth_token=issue_safety_token(generate_contract_id(), "reset_emergency", "ego_vehicle"),
+        )
+        result = sim.propose_action(proposal)
+        assert result.outcome == ExecutionOutcome.REJECTED.value, (
+            f"NaN timestamp must be rejected — got {result.outcome}"
+        )
+
+
+class TestGateCleanupAfterException:
+    """Safety gate must be cleared after exceptions/early returns — Luna Round 8."""
+
+    def test_vehicle_gate_cleared_after_failed_scenario(self):
+        """After run_scenario() raises, gate must be cleared (no bypass)."""
+        sim = VehicleSimulation()
+        try:
+            sim.run_scenario("nonexistent_scenario")
+        except ValueError:
+            pass
+        assert sim._safety_gate_active is False, (
+            "Gate must be False after failed run_scenario — bypass vector"
+        )
+
+    def test_vehicle_gate_cleared_after_rejected_action(self):
+        """After propose_action() rejects, gate must be cleared."""
+        sim = VehicleSimulation()
+        proposal = ActionProposal(
+            action_type="accelerate",
+            target_entity="ego_vehicle",
+            action_category=ActionCategory.DIGITAL,
+            action_parameters={"acceleration": float("nan")},
+            risk_tier=RiskTier.LOW,
+            safety_approved=True,
+            safety_auth_token=issue_safety_token(generate_contract_id(), "accelerate", "ego_vehicle"),
+        )
+        result = sim.propose_action(proposal)
+        # Action is rejected (NaN)
+        assert result.outcome == ExecutionOutcome.REJECTED.value
+        assert sim._safety_gate_active is False, (
+            "Gate must be False after rejected action — bypass vector"
+        )
+
+    def test_vehicle_gate_cleared_after_unknown_action(self):
+        """After propose_action() with unknown action type, gate must be cleared."""
+        sim = VehicleSimulation()
+        proposal = ActionProposal(
+            action_type="nonexistent_action",
+            target_entity="ego_vehicle",
+            action_category=ActionCategory.DIGITAL,
+            action_parameters={},
+            risk_tier=RiskTier.LOW,
+            safety_approved=True,
+            safety_auth_token=issue_safety_token(generate_contract_id(), "nonexistent_action", "ego_vehicle"),
+        )
+        result = sim.propose_action(proposal)
+        assert result.outcome in (ExecutionOutcome.FAILED.value, ExecutionOutcome.REJECTED.value)
+        assert sim._safety_gate_active is False, (
+            "Gate must be False after failed action — bypass vector"
+        )
+
+    def test_home_gate_cleared_after_scenario(self):
+        """After run_scenario() completes, home gate must be cleared."""
+        os.environ.setdefault("ORION_SAFETY_AUTH_KEY", "test-safety-key")
+        sim = HomeSimulator()
+        sim.run_scenario("normal")
+        assert sim._safety_gate_active is False, (
+            "Home gate must be False after run_scenario — bypass vector"
+        )
+
+
+class TestConcurrentReplayProtection:
+    """Concurrent replay protection — Luna Round 8."""
+
+    def test_concurrent_credential_use_blocked(self):
+        """Two threads using the same credential — only one should succeed."""
+        import hashlib
+        import hmac
+        import os
+        import threading
+        import time
+        os.environ.setdefault("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key")
+
+        results = []
+        results_lock = threading.Lock()
+
+        def attempt_reset(cred):
+            sim = VehicleSimulation()
+            sim.ego_vehicle.set_state("EMERGENCY")
+            sim.system_status = "EMERGENCY"
+            proposal = ActionProposal(
+                action_type="reset_emergency",
+                target_entity="ego_vehicle",
+                action_category=ActionCategory.DIGITAL,
+                action_parameters={"hmac_credential": cred},
+                risk_tier=RiskTier.LOW,
+                safety_approved=True,
+                safety_auth_token=issue_safety_token(generate_contract_id(), "reset_emergency", "ego_vehicle"),
+            )
+            result = sim.propose_action(proposal)
+            with results_lock:
+                results.append(result.outcome)
+
+        ts = time.time()
+        key = os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key")
+        msg = f"reset_emergency:{ts}"
+        sig = hmac.new(key.encode(), msg.encode(), hashlib.sha256).hexdigest()
+        cred = f"{ts}:{sig}"
+
+        t1 = threading.Thread(target=attempt_reset, args=(cred,))
+        t2 = threading.Thread(target=attempt_reset, args=(cred,))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        # At most one should be COMPLETED, at least one should be REJECTED
+        completed_count = sum(1 for r in results if r == ExecutionOutcome.COMPLETED.value)
+        rejected_count = sum(1 for r in results if r == ExecutionOutcome.REJECTED.value)
+        # Note: both might be rejected if the first one fails for other reasons,
+        # but if any succeed, only one should
+        if completed_count > 0:
+            assert completed_count == 1, (
+                f"Only one concurrent credential use should succeed — got {completed_count}"
+            )

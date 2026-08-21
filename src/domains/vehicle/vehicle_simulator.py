@@ -338,52 +338,53 @@ class VehicleSimulation:
         self.traffic_lights = []
         self.system_status = "NOMINAL"
         self._safety_gate_active = True
+        try:
+            if scenario_lower == "highway":
+                self.ego_vehicle.position = [0.0, 1.75, 0.0]
+                self.ego_vehicle.speed = 25.0
+                self.ego_vehicle.set_gear("DRIVE")
+                self.ego_vehicle.set_state("MOVING")
 
-        if scenario_lower == "highway":
-            self.ego_vehicle.position = [0.0, 1.75, 0.0]
-            self.ego_vehicle.speed = 25.0
-            self.ego_vehicle.set_gear("DRIVE")
-            self.ego_vehicle.set_state("MOVING")
+                self.spawn_vehicle("lead_car", x=30.0, lane=0, speed=15.0)
+                self.acc.set_target_speed(25.0)
 
-            self.spawn_vehicle("lead_car", x=30.0, lane=0, speed=15.0)
-            self.acc.set_target_speed(25.0)
+            elif scenario_lower == "urban":
+                self.ego_vehicle.position = [0.0, 1.75, 0.0]
+                self.ego_vehicle.speed = 12.0
+                self.ego_vehicle.set_gear("DRIVE")
+                self.ego_vehicle.set_state("MOVING")
 
-        elif scenario_lower == "urban":
-            self.ego_vehicle.position = [0.0, 1.75, 0.0]
-            self.ego_vehicle.speed = 12.0
-            self.ego_vehicle.set_gear("DRIVE")
-            self.ego_vehicle.set_state("MOVING")
+                self.add_traffic_light("tl_intersection", x=35.0, lane=0, state="RED")
 
-            self.add_traffic_light("tl_intersection", x=35.0, lane=0, state="RED")
+            elif scenario_lower == "parking":
+                self.ego_vehicle.position = [0.0, 1.75, 0.0]
+                self.ego_vehicle.speed = 3.0
+                self.ego_vehicle.set_gear("DRIVE")
 
-        elif scenario_lower == "parking":
-            self.ego_vehicle.position = [0.0, 1.75, 0.0]
-            self.ego_vehicle.speed = 3.0
-            self.ego_vehicle.set_gear("DRIVE")
+                self.spawn_vehicle("parked_car", x=5.0, lane=0, speed=0.0)
 
-            self.spawn_vehicle("parked_car", x=5.0, lane=0, speed=0.0)
+            else:
+                raise ValueError(f"Unknown scenario '{scenario_name}'. Allowed: 'highway', 'urban', 'parking'")
 
-        else:
-            raise ValueError(f"Unknown scenario '{scenario_name}'. Allowed: 'highway', 'urban', 'parking'")
+            steps = int(duration_sec / dt)
+            step_history = []
 
-        steps = int(duration_sec / dt)
-        step_history = []
+            for _ in range(steps):
+                res = self.step(dt)
+                step_history.append(res)
 
-        for _ in range(steps):
-            res = self.step(dt)
-            step_history.append(res)
+                if scenario_lower == "urban" and self.time_elapsed >= 5.0:
+                    self.set_traffic_light_state("tl_intersection", "GREEN")
 
-            if scenario_lower == "urban" and self.time_elapsed >= 5.0:
-                self.set_traffic_light_state("tl_intersection", "GREEN")
-
-        self._safety_gate_active = False
-        return {
-            "scenario": scenario_name,
-            "duration_sec": self.time_elapsed,
-            "safety_events": list(self.safety_events),
-            "final_ego_state": self.ego_vehicle.to_dict(),
-            "total_steps": len(step_history),
-        }
+            return {
+                "scenario": scenario_name,
+                "duration_sec": self.time_elapsed,
+                "safety_events": list(self.safety_events),
+                "final_ego_state": self.ego_vehicle.to_dict(),
+                "total_steps": len(step_history),
+            }
+        finally:
+            self._safety_gate_active = False
 
     def _get_front_distance(self) -> Optional[float]:
         """Get distance to nearest front obstacle."""
@@ -583,6 +584,15 @@ class VehicleSimulation:
                     )
                 now = _time.time()
                 # Luna Round 7 #4: Reject future-dated credentials (5s clock skew allowed)
+                # Luna Round 8: Reject NaN/Inf timestamps (math.isfinite)
+                if not math.isfinite(cred_timestamp):
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects=self.ego_vehicle.to_dict(),
+                        deviation={"error": "Credential timestamp is NaN/Inf — rejected"},
+                        deviation_reason="Unauthorized emergency reset — invalid timestamp",
+                    )
                 if cred_timestamp > now + 5.0:
                     return ActionExecutionResult(
                         lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
@@ -625,9 +635,9 @@ class VehicleSimulation:
                         )
                     # Mark credential as used (replay prevention) — atomic with check
                     self._used_reset_credentials.add(cred_str)
-                # Prevent unbounded growth — keep only last 1000 credentials
-                if len(self._used_reset_credentials) > 1000:
-                    self._used_reset_credentials = set(list(self._used_reset_credentials)[-1000:])
+                    # Prevent unbounded growth — inside lock (Luna Round 8)
+                    if len(self._used_reset_credentials) > 1000:
+                        self._used_reset_credentials = set(list(self._used_reset_credentials)[-1000:])
                 self.aeb_controller.reset()
                 self.ego_vehicle.set_state("STOPPED")
                 self.system_status = "NOMINAL"
@@ -646,7 +656,6 @@ class VehicleSimulation:
 
             duration = time.monotonic() - start_time
             self.increment_state_revision()
-            self._safety_gate_active = False
 
             return ActionExecutionResult(
                 lease_id=lease_id,
@@ -668,3 +677,5 @@ class VehicleSimulation:
                 deviation={"error": str(e)},
                 deviation_reason=f"Execution error: {str(e)}",
             )
+        finally:
+            self._safety_gate_active = False
