@@ -7,7 +7,7 @@ ORION — Physical Intelligence OS
 001B — Security Recovery (Round 11)
 
 ## COMMIT SHA
-(to be set after commit)
+9fc3da8
 
 ## BRANCH
 main
