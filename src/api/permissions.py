@@ -182,12 +182,11 @@ class Permission:
         ep_no_slash = ep.rstrip("/")
         if ep_no_slash in cls.ENDPOINT_MAPPINGS:
             return cls.ENDPOINT_MAPPINGS[ep_no_slash]
-        for path, level in cls.ENDPOINT_MAPPINGS.items():
-            if ep.endswith(path) or path.endswith(ep):
-                return level
-        for action, level in cls.DEFAULT_MAPPINGS.items():
-            if action in ep.lower():
-                return level
+        # Change #5: REMOVED substring/suffix permission matching.
+        # Previously: "if ep.endswith(path) or path.endswith(ep)" and
+        # "if action in ep.lower()" — these allowed 'execute_untrusted' to
+        # match 'execute', granting unauthorized access.
+        # Now: exact match only. Unknown endpoints get None (deny by default).
         return None
 
 
