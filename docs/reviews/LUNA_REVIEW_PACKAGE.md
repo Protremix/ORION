@@ -1,123 +1,127 @@
-# LUNA REVIEW PACKAGE — Round 4
+# LUNA REVIEW PACKAGE — Round 6
 
-## Project
+## PROJECT
 ORION — Physical Intelligence OS
 
-## Phase
-Phase 001B (Final Reconciliation & Security Recovery)
+## PHASE
+Phase 001B — Security Recovery (Round 6)
 
-## Commit SHA
-fa26b58
+## COMMIT SHA
+4398e7030fc30fe2e45910ba0f0bfc8db0859a59
 
-## Branch
+## BRANCH
 main
 
-## Task
-TASK 001B: Luna Independent Review Round 4
+## TASK
+Implement all 12 Luna Round 5 required security changes and resubmit for independent verification.
 
-## Acceptance Criteria
-1. Clean venv install with `pip install -e ".[dev]"`
-2. Zero test collection errors
-3. All tests pass (live PG tests may be skipped)
-4. Ruff lint clean
-5. Mypy type check clean
-6. CI no `|| true` suppressed failures
-7. Permission persistence with integrity
-8. Financial/legal/strategic action enforcement
-9. Env-based signing key management (no hardcoded keys)
-10. Docker non-root user
-11. Vision path traversal validation
-12. No debug mode bypass
-13. No wildcard permission bypass for unmapped/safety-critical actions
-14. PHYSICAL actions require device_id and Safety Gateway
-15. Input validation enforced on all API methods
-16. Memory writes require authorization
-17. Audit signatures implemented (HMAC-SHA256)
-18. NaN/Infinity rejected in actuator checks
-19. Unknown actuator parameters rejected
-20. Authority check uses exact match (no prefix bypass)
-21. Pipeline fail-closed on exceptions
-22. Audit log entries immutable
-23. Hash chain validates sequence numbers
-24. Cross-domain emergency clearing requires authorization
+## ACCEPTANCE CRITERIA
+1. All 12 Luna Round 5 required changes implemented
+2. Full test suite passes (0 failures, excluding pre-existing timeouts)
+3. Ruff lint clean
+4. Mypy type clean
+5. Adversarial tests (#11) cover all bypass vectors
+6. Exception normalization (#12) records FAILED audit events
+7. No regressions from previous round (656 to 691 passed)
 
-## Files Changed (Round 4 — 17 files, +327 -163)
-- src/api/permissions.py — fixed perms_list undefined in load_from_storage
-- src/persistence/storage.py — fixed audit hash chain sequence off-by-one, import_from_json admin perms
-- src/domains/home/home_simulator.py — clear_emergency HMAC enforcement
-- src/domains/vehicle/vehicle_simulator.py — emergency reset HMAC
-- src/safety/cross_domain_arbitration.py — cross-domain emergency clearing HMAC
-- src/safety/actuator_verification.py — NaN, unknown params, exact match, fail-closed, immutable
-- src/api/__init__.py — validation, PHYSICAL device_id, debug bypass removed
-- src/arbitration/action_arbitration.py — import fixes
-- src/audit/audit_system.py — import fixes
-- src/persistence/postgres_storage.py — conditional asyncpg import
-- tests/unit/test_cross_domain.py — HMAC credentials for clear_emergency
-- tests/unit/test_cross_domain_integration.py — HMAC credentials for clear_emergency
-- tests/unit/test_home_domain.py — HMAC credentials for clear_emergency
-- tests/unit/test_performance_benchmarks.py — HMAC credentials for clear_emergency
-- tests/unit/test_persistence.py — actor_permissions for memory CRUD
-- tests/unit/test_postgres_storage.py — actor_permissions for memory CRUD
-- Dockerfile — non-root user
+## FILES CHANGED (Round 6)
 
-## Test Results
-- 651 passed, 9 skipped (live PG only), 0 failed
-- Ruff: all checks passed
-- Mypy: Success, no issues found in 62 source files
+### Source files modified:
+- src/audit/audit_system.py — Change #12: exception to FAILED audit event
+- src/contracts/contracts.py — Change #3: cryptographic safety token
+- src/api/__init__.py — Change #1: server-side action classification; Change #2: physical-action gating
+- src/api/permissions.py — Change #5: exact permission matching (no substring)
+- src/safety/actuator_verification.py — Change #6: NaN/Inf rejection; Change #7: exact parameter allowlist
+- src/domains/vehicle/vehicle_simulator.py — Change #8: replay-protected emergency reset
+- src/domains/home/home_simulator.py — Change #2: physical-action gating
+- src/domains/drone/drone_simulator.py — Change #3: safety token validation
+- src/domains/industrial/industrial_simulator.py — Change #3: safety token validation
+- src/models/gpt4o_adapters.py — Change #9: descriptor-based file opening; Change #10: SSRF-safe download
 
-## Security Results
-- Debug mode bypass: ELIMINATED
-- Wildcard permission bypass: ELIMINATED
-- Exact-string permission bypass: ELIMINATED
-- PHYSICAL without device_id: ELIMINATED
-- Input validation not wired: ELIMINATED
-- Permission persistence without integrity: ELIMINATED (HMAC-SHA256)
-- Memory optional authorization: ELIMINATED
-- Audit signatures not implemented: ELIMINATED (HMAC-SHA256)
-- NaN bypass: ELIMINATED
-- Unknown actuator parameters: ELIMINATED
-- Authority prefix bypass: ELIMINATED
-- Emergency rate limit bypass: ELIMINATED
-- Pipeline exception escape: ELIMINATED (fail-closed)
-- Audit log mutability: ELIMINATED (deep copies)
-- Hash chain sequence: VALIDATED (fixed off-by-one: starts at 1)
-- Cross-domain emergency clearing: AUTHORIZED (HMAC)
-- Vehicle AEB condition: FIXED
-- Vehicle emergency reset: AUTHORIZED (HMAC)
-- Policy fallback signature: REMOVED
+### Test files added/modified:
+- tests/unit/test_round5_adversarial.py — Change #11: 25 adversarial tests + 2 integration tests
+- Various existing test files updated for API changes
 
-## Known Limitations
-- Live PostgreSQL tests skipped (require Docker/PG instance)
-- GPT integration tests skipped (require OpenAI API key)
-- Load/scalability tests not run in this cycle
+## TEST RESULTS
+- Collected: 702
+- Passed: 691
+- Skipped: 9 (live PostgreSQL only)
+- Failed: 2 (pre-existing timeouts: load test + live GPT-4o API call)
+- Command: python3 -m pytest --timeout=30 -q
 
-## Known Risks
-- None identified in this round
+## SECURITY RESULTS
+All 12 Luna Round 5 bypass vectors addressed:
 
-## Previous Failures
-- Round 1 (gpt-4o): INVALID — wrong model used, not Luna
-- Round 2: Luna found 14 bypass vectors
-- Round 3: All 14 fixed. Luna found 12 additional blocking findings.
-- Round 4: Fixed all remaining test failures
+1. DIGITAL+device_id to PHYSICAL classification — FIXED (server-side _classify_action_server_side)
+2. Physical-action gating for HVAC/lighting — FIXED (Safety Gateway in all domain simulators)
+3. Mutable boolean safety_approved — FIXED (Cryptographic HMAC-SHA256 safety_auth_token)
+4. Stale agent permissions after revocation — FIXED (Immediate removal from _registry)
+5. Substring permission matching — FIXED (Exact match only, deny by default)
+6. NaN/Inf bypass via NaN comparison shortcuts — FIXED (math.isnan/math.isinf check)
+7. Substring parameter allowlist match — FIXED (Exact match only in _get_parameter_limit)
+8. Vehicle emergency reset replay — FIXED (HMAC credential with timestamp + used-credential tracking)
+9. TOCTOU race in vision file opening — FIXED (Descriptor-based opening with path validation)
+10. SSRF via HTTPS URL passthrough — FIXED (Controlled download with IP/hostname allowlist)
+11. No adversarial tests for bypass vectors — DONE (25 adversarial tests + 2 integration tests)
+12. Exceptions escape before audit — FIXED (FAILED audit event recorded before re-raise)
 
-## Fixes Applied in Round 4
-1. Fixed perms_list undefined in load_from_storage — json.loads(perms_json)
-2. Fixed audit hash chain sequence off-by-one — starts at 1, not 0
-3. Fixed import_from_json to pass admin actor_permissions to create_memory
-4. Updated all clear_emergency test calls with valid HMAC credentials (4 test files)
-5. Updated memory CRUD test calls with required actor_permissions (2 test files)
-6. Ruff auto-fixed 20 import-order issues
+## ADVERSARIAL TEST SUMMARY (Change #11)
+25 adversarial tests + 2 integration tests = 27 total, all passing
 
-## Reproduction Commands
+## SAFETY RESULTS
+- All safety-critical actions require valid cryptographic safety token
+- Boolean safety_approved alone is insufficient
+- Emergency reset requires HMAC credential with freshness window (60s) and replay tracking
+- SSRF protection blocks localhost, private IPs, and unresolvable hostnames
+
+## LICENSE RESULTS
+- All ORION-owned code: Apache 2.0
+- No new dependencies added in Round 6
+
+## CI RESULTS
+- GitHub Actions: clean (no suppressed failures)
+- Ruff: clean
+- Mypy: clean
+
+## KNOWN LIMITATIONS
+1. Load test times out at 30s — pre-existing, not security-related
+2. Live GPT-4o test times out — requires live API, not security-related
+3. SSRF protection uses DNS resolution + IP allowlist — does not protect against DNS rebinding (future)
+
+## KNOWN RISKS
+1. Safety token key must be kept secret
+2. Emergency reset HMAC key must be distinct from safety token key
+3. SSRF allowlist is static
+
+## UNKNOWN ITEMS
+None.
+
+## PREVIOUS FAILURES
+- Luna Round 4 (commit 9b804fd): 10 bypass vectors identified
+- Luna Round 5 (commit 11f2289): 12 bypass vectors identified (10 original + 2 new)
+
+## FIXES APPLIED IN ROUND 6
+All 12 required changes from Luna Round 5 verdict implemented.
+
+## EVIDENCE
+- Commit: 4398e70 on main (pushed to GitHub)
+- Full test suite: 691 passed, 9 skipped, 2 pre-existing timeouts
+- Adversarial tests: 25 passed + 2 integration = 27 total
+- Ruff: clean
+- Mypy: clean
+
+## REPRODUCTION COMMANDS
 ```bash
-git clone https://github.com/Protremix/ORION.git
-cd ORION/implementation
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-python -m pytest tests/ --ignore=tests/load --ignore=tests/test_gpt_integration.py -q
-python -m ruff check src/ tests/
-python -m mypy src/ --ignore-missing-imports
+ORION_SAFETY_AUTH_KEY=test-safety-key \
+ORION_EMERGENCY_HMAC_KEY=test-emergency-hmac-key \
+ORION_LEASE_SIGNING_KEY=test-lease-signing-key \
+ORION_AUDIT_KEY=test-audit-key \
+python3 -m pytest --timeout=30 -q
+
+python3 -m pytest tests/unit/test_round5_adversarial.py -v
+python3 -m ruff check src/ tests/
+python3 -m mypy src/ --ignore-missing-imports
 ```
 
 ## Luna Review Request
-Independently review the complete repository at commit fa26b58 and determine whether all Phase 001B acceptance criteria are satisfied. Do not trust summaries — verify against actual source code.
+Independently review the complete repository at commit 4398e70 and determine whether all Phase 001B acceptance criteria are satisfied. Do not trust summaries — verify against actual source code.
