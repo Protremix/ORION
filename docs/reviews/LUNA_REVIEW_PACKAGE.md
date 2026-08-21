@@ -1,4 +1,4 @@
-# LUNA REVIEW PACKAGE — Phase 002 (ORION Evaluation System) — Round 6
+# LUNA REVIEW PACKAGE — Phase 002 (ORION Evaluation System) — Round 7
 
 ## PROJECT
 ORION — Physical Intelligence OS
@@ -7,7 +7,7 @@ ORION — Physical Intelligence OS
 002 — ORION Evaluation System
 
 ## COMMIT SHA
-3d7c3ff
+(to be filled after commit)
 
 ## BRANCH
 main
@@ -20,36 +20,43 @@ Create the official ORION benchmark system (ORION EVAL) with 12 benchmark catego
 - Round 2: REQUIRES_CHANGES — 4 findings. All fixed.
 - Round 3: REQUIRES_CHANGES — 7 findings. All fixed.
 - Round 4: REQUIRES_CHANGES — 6 findings. All fixed.
-- Round 5: REQUIRES_CHANGES — 1 finding (metadata normalization). Fixed in this commit.
+- Round 5: REQUIRES_CHANGES — 1 finding (metadata None/empty). Fixed.
+- Round 6: REQUIRES_CHANGES — 1 finding (error/skip paths bypass normalization). Fixed in this commit.
 
-## LUNA ROUND 5 FINDING + FIX
+## LUNA ROUND 6 FINDING + FIX
 
-### R5 Finding: Metadata normalization incomplete for None/empty values
-**Fix:** 
-- `_ensure_metadata()` now uses a `_clean()` helper that treats `None`, empty string `""`, and whitespace-only strings as missing.
-- System attribute fallbacks use `getattr(system, attr, None)` and apply `_clean()` — so `model_name=None`, `version=""`, `hardware="  "` all fall back to `"unknown"`.
-- Added `BENCHMARK_VERSION = "1.0.0"` constant. Custom results with the silent dataclass default `test_version="1.0"` are overridden with `BENCHMARK_VERSION`.
-- 2 new regression tests: None/empty system metadata gets "unknown" fallback, test_version uses BENCHMARK_VERSION not "1.0".
+### R6 Finding: Error/skip results bypass metadata normalization
+**Fix:**
+- Added `_make_error_result()` and `_make_skip_result()` centralized helper methods on ORIONEval.
+- Both helpers use `_clean()` to handle None, empty string, whitespace-only values and fall back to "unknown".
+- Both helpers set `test_version=BENCHMARK_VERSION` (not "1.0").
+- ALL inline EvalResult constructions in run_all() and run_category() replaced with these helpers:
+  - setup exceptions (run_all + run_category)
+  - setup failures (run_all + run_category)
+  - run exceptions (run_all + run_category)
+- No `model=getattr(system, 'model_name', 'unknown')` inline patterns remain in the codebase.
+- 4 new regression tests: setup exception, setup failure, run exception (all via run_all), run_category error — all verify None/empty system metadata gets "unknown" and test_version gets BENCHMARK_VERSION.
 
 ## ACCEPTANCE CRITERIA
 1. All 12 benchmark categories have concrete tests ✅
-2. Every result includes all required metadata fields ✅ (robust _ensure_metadata with None/empty handling)
+2. Every result includes all required metadata fields ✅ (centralized helpers for ALL paths)
 3. ORIONEval.run_all() produces a complete reproducible report ✅ (try/finally lifecycle)
 4. CLI runner works with filtered categories ✅ (nonzero exit on error, rejects empty)
 5. No invented results — all metrics are measured ✅ (OPIB default-success removed)
-6. All tests pass ✅ (739 passed, 9 skipped, 0 failed)
-7. Existing tests still pass ✅ (700 original + 39 new acceptance)
+6. All tests pass ✅ (743 passed, 9 skipped, 0 failed)
+7. Existing tests still pass ✅ (700 original + 43 new acceptance)
 8. Lint clean, type clean ✅
 
 ## TEST RESULTS
-- **Total:** 739 collected, 739 passed, 9 skipped, 0 failed
-- **Acceptance tests:** 39/39 passing (including 6 R3 + 6 R4 + 2 R5 regression tests)
-- **Benchmark:** 12/12 categories passing
+- **Total:** 743 collected, 743 passed, 9 skipped, 0 failed
+- **Acceptance tests:** 43/43 passing (6 R3 + 6 R4 + 2 R5 + 4 R6 regression tests)
 - **Command:** `python3 -m pytest --timeout=30 -q --ignore=tests/load --ignore=tests/unit/test_live_gpt4o.py`
 
-## LUNA ROUND 5 REGRESSION TESTS
-- test_none_system_metadata_gets_fallback: None model_name, empty version, whitespace hardware all get "unknown"
-- test_test_version_uses_benchmark_version: dataclass default "1.0" overridden with BENCHMARK_VERSION "1.0.0"
+## LUNA ROUND 6 REGRESSION TESTS
+- test_setup_exception_metadata_normalized: SparseSystem → error result has model/version/hardware="unknown", test_version=BENCHMARK_VERSION
+- test_setup_failure_metadata_normalized: SparseSystem → skip result has model/version/hardware="unknown", test_version=BENCHMARK_VERSION
+- test_run_exception_metadata_normalized: SparseSystem → error result has model/version/hardware="unknown", test_version=BENCHMARK_VERSION
+- test_run_category_error_metadata_normalized: SparseSystem → run_category error result has model/version/hardware="unknown", test_version=BENCHMARK_VERSION
 
 ## SECURITY RESULTS
 No security changes — evaluation framework only.

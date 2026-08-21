@@ -613,6 +613,150 @@ class TestLunaRound5Regressions:
         assert default_ver.test_version == BENCHMARK_VERSION,             f"test_version should be {BENCHMARK_VERSION}, got '{default_ver.test_version}'"
 
 
+class TestLunaRound6Regressions:
+    """Tests for Luna Round 6: metadata normalization on error/skip paths."""
+
+    def test_setup_exception_metadata_normalized(self):
+        """Setup exception result should have normalized metadata."""
+        from eval import BENCHMARK_VERSION, EvaluationTest
+
+        class SetupCrashTest(EvaluationTest):
+            @property
+            def metric(self):
+                return EvalMetric(name="setup_crash_r6", category=EvalCategory.PLANNING, description="Setup crash")
+
+            def setup(self):
+                raise RuntimeError("boom")
+
+            def teardown(self):
+                pass
+
+            def run(self, system):
+                return EvalResult(metric=self.metric, status=EvalStatus.PASSED, value=1.0)
+
+        class SparseSystem:
+            model_name = None
+            version = ""
+            hardware = "  "
+
+        system = SparseSystem()
+        eval_sys = create_orion_eval()
+        eval_sys.register_test(SetupCrashTest())
+        report = eval_sys.run_all(system)
+        error_results = [r for r in report.results if r.status == EvalStatus.ERROR]
+        assert len(error_results) > 0
+        r = error_results[0]
+        assert r.model == "unknown", f"Setup exception model should be 'unknown', got '{r.model}'"
+        assert r.version == "unknown", f"Setup exception version should be 'unknown', got '{r.version}'"
+        assert r.hardware == "unknown", f"Setup exception hardware should be 'unknown', got '{r.hardware}'"
+        assert r.test_version == BENCHMARK_VERSION, f"Should be {BENCHMARK_VERSION}, got '{r.test_version}'"
+
+    def test_setup_failure_metadata_normalized(self):
+        """Setup failure (returns False) result should have normalized metadata."""
+        from eval import BENCHMARK_VERSION, EvaluationTest
+
+        class SetupFailTest(EvaluationTest):
+            @property
+            def metric(self):
+                return EvalMetric(name="setup_fail_r6", category=EvalCategory.PLANNING, description="Setup fail")
+
+            def setup(self):
+                return False
+
+            def teardown(self):
+                pass
+
+            def run(self, system):
+                return EvalResult(metric=self.metric, status=EvalStatus.PASSED, value=1.0)
+
+        class SparseSystem:
+            model_name = None
+            version = ""
+            hardware = "  "
+
+        system = SparseSystem()
+        eval_sys = create_orion_eval()
+        eval_sys.register_test(SetupFailTest())
+        report = eval_sys.run_all(system)
+        skip_results = [r for r in report.results if r.status == EvalStatus.SKIPPED]
+        assert len(skip_results) > 0
+        r = skip_results[0]
+        assert r.model == "unknown", f"Setup skip model should be 'unknown', got '{r.model}'"
+        assert r.version == "unknown", f"Setup skip version should be 'unknown', got '{r.version}'"
+        assert r.hardware == "unknown", f"Setup skip hardware should be 'unknown', got '{r.hardware}'"
+        assert r.test_version == BENCHMARK_VERSION, f"Should be {BENCHMARK_VERSION}, got '{r.test_version}'"
+
+    def test_run_exception_metadata_normalized(self):
+        """Run exception result should have normalized metadata."""
+        from eval import BENCHMARK_VERSION, EvaluationTest
+
+        class RunCrashTest(EvaluationTest):
+            @property
+            def metric(self):
+                return EvalMetric(name="run_crash_r6", category=EvalCategory.PLANNING, description="Run crash")
+
+            def setup(self):
+                return True
+
+            def teardown(self):
+                pass
+
+            def run(self, system):
+                raise RuntimeError("run boom")
+
+        class SparseSystem:
+            model_name = None
+            version = ""
+            hardware = "  "
+
+        system = SparseSystem()
+        eval_sys = create_orion_eval()
+        eval_sys.register_test(RunCrashTest())
+        report = eval_sys.run_all(system)
+        error_results = [r for r in report.results if r.status == EvalStatus.ERROR and "run" in r.prompt]
+        assert len(error_results) > 0
+        r = error_results[0]
+        assert r.model == "unknown", f"Run exception model should be 'unknown', got '{r.model}'"
+        assert r.version == "unknown", f"Run exception version should be 'unknown', got '{r.version}'"
+        assert r.hardware == "unknown", f"Run exception hardware should be 'unknown', got '{r.hardware}'"
+        assert r.test_version == BENCHMARK_VERSION, f"Should be {BENCHMARK_VERSION}, got '{r.test_version}'"
+
+    def test_run_category_error_metadata_normalized(self):
+        """run_category() error results should also have normalized metadata."""
+        from eval import BENCHMARK_VERSION, EvaluationTest
+
+        class CatCrashTest(EvaluationTest):
+            @property
+            def metric(self):
+                return EvalMetric(name="cat_crash_r6", category=EvalCategory.PLANNING, description="Cat crash")
+
+            def setup(self):
+                raise RuntimeError("cat setup boom")
+
+            def teardown(self):
+                pass
+
+            def run(self, system):
+                return EvalResult(metric=self.metric, status=EvalStatus.PASSED, value=1.0)
+
+        class SparseSystem:
+            model_name = None
+            version = ""
+            hardware = "  "
+
+        system = SparseSystem()
+        eval_sys = create_orion_eval()
+        eval_sys.register_test(CatCrashTest())
+        results = eval_sys.run_category(EvalCategory.PLANNING, system)
+        error_results = [r for r in results if r.status == EvalStatus.ERROR]
+        assert len(error_results) > 0
+        r = error_results[0]
+        assert r.model == "unknown", f"run_category error model should be 'unknown', got '{r.model}'"
+        assert r.version == "unknown", f"run_category error version should be 'unknown', got '{r.version}'"
+        assert r.hardware == "unknown", f"run_category error hardware should be 'unknown', got '{r.hardware}'"
+        assert r.test_version == BENCHMARK_VERSION, f"Should be {BENCHMARK_VERSION}, got '{r.test_version}'"
+
+
 class TestReproducibility:
     """Test that reports are structurally reproducible."""
 
