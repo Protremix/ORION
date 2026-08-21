@@ -122,6 +122,17 @@ def validate_image_path(path: str) -> bytes:
     if not resolved.is_relative_to(base_dir):
         raise ValueError(f"Access denied: path '{path}' escapes allowed vision directory '{base_dir}'")
 
+    # Vector #6: Check each parent directory is not a symlink (prevents TOCTOU via parent dir replacement)
+    # Walk from the target's parent up to base_dir, verifying no component is a symlink
+    current = resolved.parent
+    while current != base_dir and current != current.parent:
+        if os.path.islink(str(current)):
+            raise ValueError(
+                f"Access denied: parent directory '{current}' is a symlink "
+                f"(potential TOCTOU attack via parent-directory symlink replacement)"
+            )
+        current = current.parent
+
     # Open immediately after validation to prevent TOCTOU symlink race
     # Use os.open with O_NOFOLLOW to reject symlinks at the final component
     import errno
@@ -250,6 +261,68 @@ class GPT4oVisionAdapter(VisionModelAdapter):
             url = request.image_url
             if not (url.startswith("https://") or url.startswith("data:image/")):
                 raise ValueError("Unsafe image URL scheme rejected: only https:// and data:image/ allowed")
+
+            # Vector #8: Validate data URL format and content
+            if url.startswith("data:image/"):
+                import re as _re
+                # Check format: data:image/<type>;base64,<valid_base64>
+                match = _re.match(
+                    r'^data:image/(png|jpeg|jpg|gif|webp);base64,([A-Za-z0-9+/=]+)$',
+                    url
+                )
+                if not match:
+                    raise ValueError(
+                        "Invalid data URL: must be data:image/<png|jpeg|jpg|gif|webp>;base64,<valid_base64>"
+                    )
+                # Limit size to 10MB to prevent memory exhaustion
+                if len(url) > 10 * 1024 * 1024:
+                    raise ValueError("Data URL too large: maximum 10MB allowed")
+
+            # Vector #7: SSRF protection — block internal/private IP addresses and hostnames
+            if url.startswith("https://"):
+                import ipaddress
+                import re as _re
+                import socket
+                import urllib.parse
+
+                parsed = urllib.parse.urlparse(url)
+                hostname = parsed.hostname
+                if hostname:
+                    # Check for direct IP addresses
+                    try:
+                        ip = ipaddress.ip_address(hostname)
+                        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                            raise ValueError(
+                                f"SSRF protection: URL hostname '{hostname}' is internal/private — rejected"
+                            )
+                    except ValueError as ve:
+                        if "SSRF" in str(ve):
+                            raise
+                        # Not a direct IP — check for obvious internal hostnames
+                        internal_patterns = [
+                            r'^localhost$', r'^127\.', r'^10\.', r'^172\.(1[6-9]|2[0-9]|3[01])\.',
+                            r'^192\.168\.', r'^169\.254\.', r'^0\.0\.0\.0$',
+                        ]
+                        for pattern in internal_patterns:
+                            if _re.match(pattern, hostname, _re.IGNORECASE):
+                                raise ValueError(
+                                    f"SSRF protection: URL hostname '{hostname}' matches internal pattern — rejected"
+                                )
+                        # Try DNS resolution to catch internal addresses
+                        try:
+                            addr_info = socket.getaddrinfo(hostname, None)
+                            for _, _, _, _, sockaddr in addr_info:
+                                resolved_ip = ipaddress.ip_address(sockaddr[0])
+                                if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local:
+                                    raise ValueError(
+                                        f"SSRF protection: URL hostname '{hostname}' resolves to "
+                                        f"internal address {resolved_ip} — rejected"
+                                    )
+                        except (socket.gaierror, ValueError) as dns_err:
+                            if "SSRF" in str(dns_err):
+                                raise
+                            # Can't resolve — let the actual request handle it
+
             return url
         elif request.image_data:
             b64 = base64.b64encode(request.image_data).decode()
