@@ -17,7 +17,7 @@
 import unittest
 from typing import Any, Dict
 
-from src.contracts.contracts import ActionProposal, ExecutionOutcome
+from src.contracts.contracts import ActionProposal, ExecutionOutcome, issue_safety_token
 from src.domains.vehicle.vehicle_entities import (
     AdaptiveCruiseControl,
     AEBController,
@@ -30,7 +30,6 @@ from src.domains.vehicle.vehicle_entities import (
     VehicleEntity,
 )
 from src.domains.vehicle.vehicle_simulator import VehicleSimulation
-from src.contracts.contracts import issue_safety_token
 
 
 class TestVehicleDomain(unittest.TestCase):
@@ -208,7 +207,9 @@ class TestVehicleDomain(unittest.TestCase):
     def test_traffic_light_compliance(self):
         """9. Traffic light sensor compliance stops vehicle on RED light."""
         sim = VehicleSimulation()
+        sim._safety_gate_active = True
         sim.spawn_vehicle("ego_test", x=0.0, lane=0, speed=10.0)
+        sim._safety_gate_active = True
         sim.add_traffic_light("tl_1", x=20.0, lane=0, state="RED")
 
         tl_data = sim.traffic_light_sensor.detect_light(
@@ -227,6 +228,7 @@ class TestVehicleDomain(unittest.TestCase):
         sim.ego_vehicle.set_gear("DRIVE")
         sim.ego_vehicle.set_state("MOVING")
 
+        sim._safety_gate_active = True
         sim.spawn_vehicle("slow_car", x=25.0, lane=0, speed=5.0)
 
         step_res = sim.step(dt=0.1)

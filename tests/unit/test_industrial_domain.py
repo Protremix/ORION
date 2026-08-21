@@ -3,7 +3,7 @@
 import unittest
 from typing import Any, Dict
 
-from src.contracts.contracts import ActionProposal, ExecutionOutcome
+from src.contracts.contracts import ActionProposal, ExecutionOutcome, issue_safety_token
 from src.domains.industrial.industrial_entities import (
     ConveyorBelt,
     EmergencyStopButton,
@@ -16,7 +16,6 @@ from src.domains.industrial.industrial_entities import (
     ValveController,
 )
 from src.domains.industrial.industrial_simulator import IndustrialSimulation
-from src.contracts.contracts import issue_safety_token
 
 
 class TestIndustrialDomain(unittest.TestCase):

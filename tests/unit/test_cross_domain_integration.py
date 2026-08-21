@@ -12,10 +12,10 @@ Verifies:
 """
 
 import hashlib
-import time
 import hmac
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -107,7 +107,9 @@ class TestCrossDomainIntegration(unittest.TestCase):
     def test_home_fire_triggers_cascade(self):
         """Smart home fire emergency cascades to all other domains."""
         # Trigger fire in home domain
+        self.home._safety_gate_active = True
         fire_result = self.home.trigger_fire_emergency("room_kitchen")
+        self.home._safety_gate_active = False
         self.assertEqual(fire_result["status"], "EMERGENCY")
 
         # Create safety event for arbitration
@@ -211,7 +213,9 @@ class TestCrossDomainIntegration(unittest.TestCase):
         ind_result = self.industrial.run_simulation_step() if hasattr(self.industrial, 'run_simulation_step') else {"status": "ok"}
 
         # Home: run normal cycle
+        self.home._safety_gate_active = True
         home_result = self.home.run_normal_cycle()
+        self.home._safety_gate_active = False
         self.assertEqual(home_result["system_status"], "NOMINAL")
 
         # Drone: takeoff and hover
@@ -279,6 +283,7 @@ class TestCrossDomainIntegration(unittest.TestCase):
     def test_home_evacuation_then_clear(self):
         """Full home evacuation cycle: trigger → cascade → clear → recover."""
         # Trigger fire
+        self.home._safety_gate_active = True
         self.home.trigger_fire_emergency("room_kitchen")
         self.assertEqual(self.home.system_status, "EMERGENCY")
         self.assertTrue(self.home.front_lock.fail_safe_unlocked)

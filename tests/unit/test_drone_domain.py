@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.contracts.contracts import ActionProposal, ExecutionOutcome, RiskTier, generate_contract_id
+from src.contracts.contracts import ActionProposal, ExecutionOutcome, RiskTier, generate_contract_id, issue_safety_token
 from src.domains.drone.drone_entities import (
     AltitudeSensor,
     BatteryManager,
@@ -22,7 +22,6 @@ from src.domains.drone.drone_entities import (
     IMUSensor,
 )
 from src.domains.drone.drone_simulator import DroneSimulation
-from src.contracts.contracts import issue_safety_token
 
 
 class TestDroneDomain(unittest.TestCase):

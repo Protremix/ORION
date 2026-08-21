@@ -22,6 +22,7 @@ and action proposal arbitration matching ORION SC-2 safety standards.
 from __future__ import annotations
 
 import math
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -103,11 +104,19 @@ class VehicleSimulation:
         self.safety_events: List[Dict[str, Any]] = []
         self._safety_gate_active: bool = False
         # Change #8: Track used emergency reset credentials to prevent replay
-        self._used_reset_credentials: set = set()  # Set True by propose_action, checked by direct methods
+        self._used_reset_credentials: set = set()
+        self._credential_lock: threading.Lock = threading.Lock()
 
     def increment_state_revision(self) -> int:
         self.state_revision += 1
         return self.state_revision
+
+    def _require_safety_gate(self) -> None:
+        if not self._safety_gate_active:
+            raise PermissionError(
+                "Direct mutation blocked: use propose_action() or run_scenario() "
+                "- Safety Gateway required (Luna Round 7 #2)"
+            )
 
     def spawn_vehicle(
         self,
@@ -119,6 +128,7 @@ class VehicleSimulation:
         heading: float = 0.0,
     ) -> VehicleEntity:
         """Spawn an auxiliary vehicle on the road."""
+        self._require_safety_gate()
         lane_y = (lane + 0.5) * self.lane_width
         veh = VehicleEntity(
             entity_id=vehicle_id,
@@ -150,6 +160,7 @@ class VehicleSimulation:
         state: str = "RED",
     ) -> Dict[str, Any]:
         """Add a traffic light signal to the simulation environment."""
+        self._require_safety_gate()
         lane_y = (lane + 0.5) * self.lane_width
         tl = {
             "id": light_id,
@@ -163,6 +174,7 @@ class VehicleSimulation:
 
     def set_traffic_light_state(self, light_id: str, state: str) -> None:
         """Change state of specified traffic light."""
+        self._require_safety_gate()
         for tl in self.traffic_lights:
             if tl["id"] == light_id:
                 tl["state"] = state.upper()
@@ -185,6 +197,7 @@ class VehicleSimulation:
         Executes full autonomous driving loop (sensors -> plan -> safety check -> act -> verify)
         when autonomous_mode is enabled.
         """
+        self._require_safety_gate()
         self.time_elapsed += dt
         current_events: List[str] = []
 
@@ -324,6 +337,7 @@ class VehicleSimulation:
         self.vehicles = {self.ego_vehicle.entity_id: self.ego_vehicle}
         self.traffic_lights = []
         self.system_status = "NOMINAL"
+        self._safety_gate_active = True
 
         if scenario_lower == "highway":
             self.ego_vehicle.position = [0.0, 1.75, 0.0]
@@ -362,6 +376,7 @@ class VehicleSimulation:
             if scenario_lower == "urban" and self.time_elapsed >= 5.0:
                 self.set_traffic_light_state("tl_intersection", "GREEN")
 
+        self._safety_gate_active = False
         return {
             "scenario": scenario_name,
             "duration_sec": self.time_elapsed,
@@ -567,7 +582,16 @@ class VehicleSimulation:
                         deviation_reason="Unauthorized emergency reset — invalid timestamp",
                     )
                 now = _time.time()
-                if abs(now - cred_timestamp) > 60.0:
+                # Luna Round 7 #4: Reject future-dated credentials (5s clock skew allowed)
+                if cred_timestamp > now + 5.0:
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects=self.ego_vehicle.to_dict(),
+                        deviation={"error": "Credential timestamp is in the future — rejected"},
+                        deviation_reason="Unauthorized emergency reset — future timestamp blocked",
+                    )
+                if now - cred_timestamp > 60.0:
                     return ActionExecutionResult(
                         lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
                         execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
@@ -575,30 +599,32 @@ class VehicleSimulation:
                         deviation={"error": "Credential expired — timestamp outside 60s window"},
                         deviation_reason="Unauthorized emergency reset — stale credential (replay protection)",
                     )
-                # Check for replay — credential must not have been used before
-                if cred_str in self._used_reset_credentials:
-                    return ActionExecutionResult(
-                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
-                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
-                        actual_effects=self.ego_vehicle.to_dict(),
-                        deviation={"error": "Credential already used — replay detected"},
-                        deviation_reason="Unauthorized emergency reset — credential replay blocked",
-                    )
-                # Verify HMAC signature
-                expected_message = f"reset_emergency:{cred_timestamp_str}"
-                expected_hmac = hmac_mod.new(
-                    expected_key.encode(), expected_message.encode(), hashlib.sha256
-                ).hexdigest()
-                if not hmac_mod.compare_digest(cred_sig, expected_hmac):
-                    return ActionExecutionResult(
-                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
-                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
-                        actual_effects=self.ego_vehicle.to_dict(),
-                        deviation={"error": "Invalid HMAC credential for emergency reset"},
-                        deviation_reason="Unauthorized emergency reset — invalid signature",
-                    )
-                # Mark credential as used (replay prevention)
-                self._used_reset_credentials.add(cred_str)
+                # Luna Round 7 #3: Atomic check-and-insert with lock to prevent TOCTOU race
+                with self._credential_lock:
+                    # Check for replay — credential must not have been used before
+                    if cred_str in self._used_reset_credentials:
+                        return ActionExecutionResult(
+                            lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                            execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                            actual_effects=self.ego_vehicle.to_dict(),
+                            deviation={"error": "Credential already used — replay detected"},
+                            deviation_reason="Unauthorized emergency reset — credential replay blocked",
+                        )
+                    # Verify HMAC signature
+                    expected_message = f"reset_emergency:{cred_timestamp_str}"
+                    expected_hmac = hmac_mod.new(
+                        expected_key.encode(), expected_message.encode(), hashlib.sha256
+                    ).hexdigest()
+                    if not hmac_mod.compare_digest(cred_sig, expected_hmac):
+                        return ActionExecutionResult(
+                            lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                            execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                            actual_effects=self.ego_vehicle.to_dict(),
+                            deviation={"error": "Invalid HMAC credential for emergency reset"},
+                            deviation_reason="Unauthorized emergency reset — invalid signature",
+                        )
+                    # Mark credential as used (replay prevention) — atomic with check
+                    self._used_reset_credentials.add(cred_str)
                 # Prevent unbounded growth — keep only last 1000 credentials
                 if len(self._used_reset_credentials) > 1000:
                     self._used_reset_credentials = set(list(self._used_reset_credentials)[-1000:])

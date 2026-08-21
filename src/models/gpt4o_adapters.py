@@ -111,21 +111,41 @@ def validate_image_path(path: str) -> bytes:
     except Exception as e:
         raise ValueError(f"Invalid vision base directory setting: {e}") from e
 
+    # Luna Round 7 #6: Do NOT resolve symlinks before descriptor walk.
+    # .resolve() follows symlinks, which defeats O_NOFOLLOW in the descriptor walk.
+    # Instead, reject ".." components outright and validate containment via component analysis.
     try:
         p = Path(path)
-        if p.is_absolute():
-            resolved = p.resolve()
-        else:
-            resolved_direct = p.resolve()
-            if resolved_direct.is_relative_to(base_dir):
-                resolved = resolved_direct
-            else:
-                resolved = (base_dir / p).resolve()
     except Exception as e:
-        raise ValueError(f"Invalid or unresolvable image path '{path}': {e}") from e
+        raise ValueError(f"Invalid image path '{path}': {e}") from e
 
-    if not resolved.is_relative_to(base_dir):
-        raise ValueError(f"Access denied: path '{path}' escapes allowed vision directory '{base_dir}'")
+    # Reject absolute paths that don't start with base_dir
+    if p.is_absolute():
+        try:
+            rel = p.relative_to(base_dir)
+        except ValueError:
+            raise ValueError(f"Access denied: absolute path '{path}' not under base directory '{base_dir}'")
+        # Reject ".." components
+        if ".." in rel.parts:
+            raise ValueError(f"Access denied: path '{path}' contains '..' — directory traversal rejected")
+        # Use rel components for the walk (no .resolve() to avoid following symlinks)
+        walk_parts = list(rel.parts)
+    else:
+        # Relative path: reject ".." components, then walk from base_dir
+        if ".." in p.parts:
+            raise ValueError(f"Access denied: path '{path}' contains '..' — directory traversal rejected")
+        walk_parts = list(p.parts)
+
+    # Validate containment by checking that the resolved path is within base_dir
+    # (only for validation, NOT for the descriptor walk)
+    try:
+        resolved = (base_dir / p).resolve()
+        if not resolved.is_relative_to(base_dir):
+            raise ValueError(f"Access denied: path '{path}' escapes allowed vision directory '{base_dir}'")
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Invalid image path '{path}': {e}") from e
 
     import errno
 
@@ -134,18 +154,20 @@ def validate_image_path(path: str) -> bytes:
     # relative to its parent directory fd. This is TOCTOU-safe because
     # each open is relative to a fixed directory descriptor that cannot
     # be replaced between check and use.
+    # Luna Round 7 #6: Open parent first, then walk to base_dir with O_NOFOLLOW
     try:
-        dir_fd = os.open(str(base_dir), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        parent_fd = os.open(str(base_dir.parent), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        dir_fd = os.open(base_dir.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+        os.close(parent_fd)
     except OSError as e:
+        try:
+            os.close(parent_fd)
+        except (OSError, UnboundLocalError):
+            pass
         raise ValueError(f"Cannot open base directory '{base_dir}': {e}") from e
 
-    # Compute the relative path components from base_dir to resolved
-    try:
-        rel_path = resolved.relative_to(base_dir)
-    except ValueError:
-        raise ValueError(f"Access denied: path '{path}' escapes allowed vision directory '{base_dir}'")
-
-    components = list(rel_path.parts)
+    # Luna Round 7 #6: Use original (unresolved) components for O_NOFOLLOW walk
+    components = walk_parts
 
     try:
         for i, component in enumerate(components):
@@ -173,7 +195,17 @@ def validate_image_path(path: str) -> bytes:
             os.close(dir_fd)
             dir_fd = next_fd
 
-        # dir_fd now points to the final file. Read its contents.
+        # dir_fd now points to the final file.
+        # Luna Round 7 #6: Verify it's a regular file (not FIFO, device, etc.)
+        import stat as _stat
+        st = os.fstat(dir_fd)
+        if not _stat.S_ISREG(st.st_mode):
+            raise ValueError(
+                f"Access denied: path is not a regular file (mode={oct(st.st_mode)}) "
+                f"- special files rejected (Luna Round 7 #6)"
+            )
+        if st.st_size > 50 * 1024 * 1024:
+            raise ValueError("Image file too large: maximum 50MB allowed (Luna Round 7 #6)")
         with os.fdopen(dir_fd, "rb") as f:
             data = f.read()
     except ValueError:
@@ -334,7 +366,7 @@ class GPT4oVisionAdapter(VisionModelAdapter):
                 # Check for direct IP addresses
                 try:
                     ip = ipaddress.ip_address(hostname)
-                    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
                         raise ValueError(
                             f"SSRF protection: URL hostname '{hostname}' is internal/private — rejected"
                         )
@@ -356,7 +388,7 @@ class GPT4oVisionAdapter(VisionModelAdapter):
                         addr_info = socket.getaddrinfo(hostname, None)
                         for _, _, _, _, sockaddr in addr_info:
                             resolved_ip = ipaddress.ip_address(sockaddr[0])
-                            if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local:
+                            if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local or resolved_ip.is_unspecified or resolved_ip.is_reserved:
                                 raise ValueError(
                                     f"SSRF protection: URL hostname '{hostname}' resolves to "
                                     f"internal address {resolved_ip} — rejected"
@@ -369,10 +401,19 @@ class GPT4oVisionAdapter(VisionModelAdapter):
                             f"SSRF protection: cannot resolve hostname '{hostname}' — rejected (fail-closed)"
                         )
 
-                # Download the image locally with SSRF-safe validation
+                # Luna Round 7 #5: Disable redirects — no redirect following at all
+                class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+                    def redirect_request(self, req, fp, code, msg, headers, newurl):
+                        raise ValueError(
+                            f"SSRF protection: HTTP redirect to '{newurl}' blocked "
+                            f"- redirects not allowed (Luna Round 7 #5)"
+                        )
+
+                # Download the image locally with SSRF-safe validation (no redirects)
                 try:
+                    opener = urllib.request.build_opener(NoRedirectHandler)
                     req = urllib.request.Request(url, headers={"User-Agent": "ORION-Vision/1.0"})
-                    with urllib.request.urlopen(req, timeout=10) as resp:
+                    with opener.open(req, timeout=10) as resp:
                         content_type = resp.headers.get("Content-Type", "")
                         if not content_type.startswith("image/"):
                             raise ValueError(f"SSRF protection: URL returned non-image content type '{content_type}' — rejected")

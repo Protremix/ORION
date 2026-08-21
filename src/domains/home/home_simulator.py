@@ -129,8 +129,17 @@ class HomeSimulation:
         }
         self.safety_events.append(event)
 
+    def _require_safety_gate(self) -> None:
+        """Guard: prevent direct calls bypassing execute_action() (Luna Round 7 #1)."""
+        if not self._safety_gate_active:
+            raise PermissionError(
+                "Direct mutation blocked: use execute_action() or run_scenario() "
+                "- Safety Gateway authorization required (Luna Round 7 #1)"
+            )
+
     def update_hvac(self) -> None:
         """Update all HVAC controllers based on room temperatures."""
+        self._require_safety_gate()
         self.hvac_ground.update(self.living_room.temperature)
         self.hvac_first.update(self.bedroom.temperature)
         self.increment_state_revision()
@@ -141,6 +150,7 @@ class HomeSimulation:
 
         Returns summary of actions taken.
         """
+        self._require_safety_gate()
         room = self.get_room_by_id(room_id)
         if not room:
             return {"error": "Room not found"}
@@ -244,6 +254,7 @@ class HomeSimulation:
 
     def trigger_intrusion(self, sensor_id: str = "sec_motion_living") -> Dict[str, Any]:
         """Trigger intrusion detection via security sensor."""
+        self._require_safety_gate()
         sensor = self.entities.get(sensor_id)
         if not sensor or not isinstance(sensor, SecuritySensor):
             return {"error": "Sensor not found"}
@@ -270,6 +281,7 @@ class HomeSimulation:
 
     def run_normal_cycle(self) -> Dict[str, Any]:
         """Run a normal operation cycle: sensor → state → plan → act → verify."""
+        self._require_safety_gate()
         # Phase 1: Sense (read all sensor states)
         room_temps = {
             self.living_room.entity_id: self.living_room.temperature,
@@ -409,23 +421,26 @@ class HomeSimulation:
     def run_scenario(self, scenario_name: str) -> Dict[str, Any]:
         """Run a predefined scenario."""
         self._safety_gate_active = True  # Internal pipeline — safety gate armed
-        if scenario_name == "normal":
-            return self.run_normal_cycle()
-        elif scenario_name == "fire":
-            return self.trigger_fire_emergency("room_kitchen")
-        elif scenario_name == "intrusion":
-            return self.trigger_intrusion("sec_motion_living")
-        elif scenario_name == "energy_optimization":
-            # Turn off lights in unoccupied rooms
-            actions = []
-            for room, light in [
-                (self.living_room, self.light_living),
-                (self.kitchen, self.light_kitchen),
-                (self.bedroom, self.light_bedroom),
-            ]:
-                if not room.is_occupied:
-                    light.set_brightness(0)
-                    actions.append(f"{light.entity_id}: turned off (unoccupied)")
-            return {"scenario": "energy_optimization", "actions": actions}
-        else:
-            return {"error": f"Unknown scenario: {scenario_name}"}
+        try:
+            if scenario_name == "normal":
+                return self.run_normal_cycle()
+            elif scenario_name == "fire":
+                return self.trigger_fire_emergency("room_kitchen")
+            elif scenario_name == "intrusion":
+                return self.trigger_intrusion("sec_motion_living")
+            elif scenario_name == "energy_optimization":
+                # Turn off lights in unoccupied rooms
+                actions = []
+                for room, light in [
+                    (self.living_room, self.light_living),
+                    (self.kitchen, self.light_kitchen),
+                    (self.bedroom, self.light_bedroom),
+                ]:
+                    if not room.is_occupied:
+                        light.set_brightness(0)
+                        actions.append(f"{light.entity_id}: turned off (unoccupied)")
+                return {"scenario": "energy_optimization", "actions": actions}
+            else:
+                return {"error": f"Unknown scenario: {scenario_name}"}
+        finally:
+            self._safety_gate_active = False

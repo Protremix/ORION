@@ -5,10 +5,10 @@ priority-based conflict resolution, emergency cascade, and log integrity.
 """
 
 import hashlib
-import time
 import hmac
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))

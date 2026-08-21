@@ -5,15 +5,15 @@ smart locks, smoke detectors, energy monitoring, and evacuation mode.
 """
 
 import hashlib
-import time
 import hmac
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.contracts.contracts import ActionProposal, ExecutionOutcome, RiskTier, generate_contract_id
+from src.contracts.contracts import ActionProposal, ExecutionOutcome, RiskTier, generate_contract_id, issue_safety_token
 from src.domains.home.home_entities import (
     EnergyMonitor,
     EvacuationController,
@@ -26,7 +26,6 @@ from src.domains.home.home_entities import (
     SmokeDetector,
 )
 from src.domains.home.home_simulator import HomeSimulation
-from src.contracts.contracts import issue_safety_token
 
 
 class TestHomeDomain(unittest.TestCase):
@@ -169,7 +168,9 @@ class TestHomeDomain(unittest.TestCase):
 
     def test_evacuation_mode(self):
         """Fire emergency triggers full evacuation sequence."""
+        self.sim._safety_gate_active = True
         result = self.sim.trigger_fire_emergency("room_kitchen")
+        self.sim._safety_gate_active = False
 
         self.assertEqual(result["status"], "EMERGENCY")
         self.assertEqual(self.sim.system_status, "EMERGENCY")
@@ -203,7 +204,9 @@ class TestHomeDomain(unittest.TestCase):
 
     def test_full_autonomous_cycle(self):
         """Full autonomous cycle: sensor → state → plan → act → verify."""
+        self.sim._safety_gate_active = True
         result = self.sim.run_normal_cycle()
+        self.sim._safety_gate_active = False
 
         self.assertEqual(result["cycle"], "normal")
         self.assertEqual(result["system_status"], "NOMINAL")
@@ -289,6 +292,7 @@ class TestHomeDomain(unittest.TestCase):
 
     def test_safety_events_logged(self):
         """Safety events are logged during emergencies."""
+        self.sim._safety_gate_active = True
         self.sim.trigger_fire_emergency("room_kitchen")
         events = self.sim.safety_events
         self.assertGreater(len(events), 0)

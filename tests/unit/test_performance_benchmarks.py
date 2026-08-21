@@ -144,7 +144,7 @@ class TestPerformanceBenchmarks(unittest.TestCase):
                         else industrial._check_safety_conditions() if hasattr(industrial, '_check_safety_conditions')
                         else lambda: None, 100)
 
-        self._benchmark("home_step", lambda: home.run_normal_cycle(), 100)
+        self._benchmark("home_step", lambda: (setattr(home, '_safety_gate_active', True), home.run_normal_cycle())[-1], 100)
         self._benchmark("drone_step", lambda: drone.step(0.1), 100)
 
         # Each domain step should be < 10ms
