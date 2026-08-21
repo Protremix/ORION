@@ -204,10 +204,13 @@ def _get_parameter_limit(
     if param_name in domain_map:
         return domain_map[param_name]
 
+    # Change #7: Exact match only — no substring matching.
+    # Previously used 'if key in p_lower or p_lower in key' which allowed
+    # 'velocity_override' to match 'velocity' (Luna Round 5, Vector A).
+    # Now: parameter name must match exactly (case-insensitive).
     p_lower = param_name.lower()
-    for key, limit in domain_map.items():
-        if key in p_lower or p_lower in key:
-            return limit
+    if p_lower in domain_map:
+        return domain_map[p_lower]
 
     return None
 
