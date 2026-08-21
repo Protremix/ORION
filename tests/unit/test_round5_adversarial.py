@@ -1070,45 +1070,6 @@ class TestDescriptorLeakInjectedFailureAdversarial:
             assert len(leaked) == 0, f"File descriptor leaked in base dir open: {leaked}"
 
 
-class TestReplayCacheCardinalityCap:
-    """Replay cache must have a 1000-entry cardinality cap (Luna Round 9)."""
-
-    def test_cache_capped_at_1000(self):
-        """After 1000+ distinct credentials, cache size must not exceed 1000."""
-        import hashlib
-        import hmac
-        import os
-        import time
-
-        os.environ.setdefault("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key")
-        key = os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key")
-
-        sim = VehicleSimulation()
-        sim.ego_vehicle.set_state("EMERGENCY")
-        sim.system_status = "EMERGENCY"
-
-        # Generate 1005 distinct valid credentials and use them
-        for i in range(1005):
-            ts = time.time() + i * 0.001  # Slightly different timestamps
-            msg = f"reset_emergency:{ts}"
-            sig = hmac.new(key.encode(), msg.encode(), hashlib.sha256).hexdigest()
-            cred = f"{ts}:{sig}"
-            sim._used_reset_credentials[cred] = float(i)
-
-        # Trigger pruning by checking — the while loop should cap at 1000
-        # Simulate what happens on next insertion
-        sim._used_reset_credentials["dummy"] = 999.0
-        while len(sim._used_reset_credentials) > 1000:
-            sim._used_reset_credentials.popitem(last=False)
-
-        assert len(sim._used_reset_credentials) <= 1000, (
-            f"Cache exceeded 1000 entries: {len(sim._used_reset_credentials)}"
-        )
-
-
-# ============================================================================
-# Luna Round 10: Replay cache bound adversarial test
-# ============================================================================
 
 class TestReplayCacheBoundAdversarial:
     """Replay cache must have a hard count-based cap with oldest-entry eviction (Luna Round 11)."""
@@ -1183,6 +1144,11 @@ class TestReplayCacheBoundAdversarial:
         )
 
         # New credential must be in cache (was accepted)
+        # Luna Round 11: Verify action succeeded (not just inserted into cache)
+        from src.contracts.contracts import ExecutionOutcome
+        assert result.outcome == ExecutionOutcome.COMPLETED.value, (
+            f"Expected COMPLETED, got {result.outcome} — credential should be accepted after eviction"
+        )
         assert new_cred in sim._used_reset_credentials, (
             "New credential was not added to cache"
         )
