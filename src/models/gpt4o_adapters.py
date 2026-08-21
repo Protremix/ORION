@@ -310,52 +310,83 @@ class GPT4oVisionAdapter(VisionModelAdapter):
                 if len(url) > 10 * 1024 * 1024:
                     raise ValueError("Data URL too large: maximum 10MB allowed")
 
-            # Vector #7: SSRF protection — block internal/private IP addresses and hostnames
+            # Data URLs are safe after validation — return directly
+            if url.startswith("data:image/"):
+                return url
+
+            # Change #10: Controlled download with SSRF protection — no arbitrary URL passthrough.
+            # Instead of passing HTTPS URLs to OpenAI (which would make OpenAI fetch them,
+            # enabling SSRF via the API provider), we download locally with full IP validation,
+            # then convert to base64 data URL. This ensures only safe, validated image bytes
+            # reach the API.
             if url.startswith("https://"):
                 import ipaddress
                 import re as _re
                 import socket
                 import urllib.parse
+                import urllib.request
 
                 parsed = urllib.parse.urlparse(url)
                 hostname = parsed.hostname
-                if hostname:
-                    # Check for direct IP addresses
-                    try:
-                        ip = ipaddress.ip_address(hostname)
-                        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-                            raise ValueError(
-                                f"SSRF protection: URL hostname '{hostname}' is internal/private — rejected"
-                            )
-                    except ValueError as ve:
-                        if "SSRF" in str(ve):
-                            raise
-                        # Not a direct IP — check for obvious internal hostnames
-                        internal_patterns = [
-                            r'^localhost$', r'^127\.', r'^10\.', r'^172\.(1[6-9]|2[0-9]|3[01])\.',
-                            r'^192\.168\.', r'^169\.254\.', r'^0\.0\.0\.0$',
-                        ]
-                        for pattern in internal_patterns:
-                            if _re.match(pattern, hostname, _re.IGNORECASE):
-                                raise ValueError(
-                                    f"SSRF protection: URL hostname '{hostname}' matches internal pattern — rejected"
-                                )
-                        # Try DNS resolution to catch internal addresses
-                        try:
-                            addr_info = socket.getaddrinfo(hostname, None)
-                            for _, _, _, _, sockaddr in addr_info:
-                                resolved_ip = ipaddress.ip_address(sockaddr[0])
-                                if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local:
-                                    raise ValueError(
-                                        f"SSRF protection: URL hostname '{hostname}' resolves to "
-                                        f"internal address {resolved_ip} — rejected"
-                                    )
-                        except (socket.gaierror, ValueError) as dns_err:
-                            if "SSRF" in str(dns_err):
-                                raise
-                            # Can't resolve — let the actual request handle it
+                if not hostname:
+                    raise ValueError("Invalid URL: no hostname")
 
-            return url
+                # Check for direct IP addresses
+                try:
+                    ip = ipaddress.ip_address(hostname)
+                    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                        raise ValueError(
+                            f"SSRF protection: URL hostname '{hostname}' is internal/private — rejected"
+                        )
+                except ValueError as ve:
+                    if "SSRF" in str(ve):
+                        raise
+                    # Not a direct IP — check for obvious internal hostnames
+                    internal_patterns = [
+                        r'^localhost$', r'^127\.', r'^10\.', r'^172\.(1[6-9]|2[0-9]|3[01])\.',
+                        r'^192\.168\.', r'^169\.254\.', r'^0\.0\.0\.0$',
+                    ]
+                    for pattern in internal_patterns:
+                        if _re.match(pattern, hostname, _re.IGNORECASE):
+                            raise ValueError(
+                                f"SSRF protection: URL hostname '{hostname}' matches internal pattern — rejected"
+                            )
+                    # DNS resolution to catch internal addresses
+                    try:
+                        addr_info = socket.getaddrinfo(hostname, None)
+                        for _, _, _, _, sockaddr in addr_info:
+                            resolved_ip = ipaddress.ip_address(sockaddr[0])
+                            if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local:
+                                raise ValueError(
+                                    f"SSRF protection: URL hostname '{hostname}' resolves to "
+                                    f"internal address {resolved_ip} — rejected"
+                                )
+                    except (socket.gaierror, ValueError) as dns_err:
+                        if "SSRF" in str(dns_err):
+                            raise
+                        # Can't resolve — reject (fail-closed, don't pass to OpenAI)
+                        raise ValueError(
+                            f"SSRF protection: cannot resolve hostname '{hostname}' — rejected (fail-closed)"
+                        )
+
+                # Download the image locally with SSRF-safe validation
+                try:
+                    req = urllib.request.Request(url, headers={"User-Agent": "ORION-Vision/1.0"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        content_type = resp.headers.get("Content-Type", "")
+                        if not content_type.startswith("image/"):
+                            raise ValueError(f"SSRF protection: URL returned non-image content type '{content_type}' — rejected")
+                        image_bytes = resp.read(10 * 1024 * 1024)  # Max 10MB
+                        if len(image_bytes) >= 10 * 1024 * 1024:
+                            raise ValueError("Downloaded image too large: maximum 10MB allowed")
+                except ValueError:
+                    raise
+                except Exception as e:
+                    raise ValueError(f"Failed to download image from URL: {e}") from e
+
+                # Convert to base64 data URL and return (no arbitrary URL passthrough to OpenAI)
+                b64 = base64.b64encode(image_bytes).decode()
+                return f"data:image/{content_type.split('/')[-1]};base64,{b64}"
         elif request.image_data:
             b64 = base64.b64encode(request.image_data).decode()
             return f"data:image/png;base64,{b64}"
