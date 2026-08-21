@@ -66,6 +66,7 @@ class DroneSimulation:
         self.state_revision: int = 1
         self.safety_events: List[Dict[str, Any]] = []
         self.wind = [0.0, 0.0, 0.0]  # Wind disturbance
+        self._safety_gate_active: bool = False  # Set True by execute_action, checked by direct methods
 
     def increment_state_revision(self) -> int:
         self.state_revision += 1
@@ -85,6 +86,8 @@ class DroneSimulation:
 
     def takeoff(self, target_altitude: float = 10.0) -> Dict[str, Any]:
         """Take off to target altitude."""
+        if not self._safety_gate_active:
+            return {"status": "ERROR", "reason": "Direct access denied — use execute_action() with Safety Gateway approval"}
         if self.drone.state not in ("IDLE",):
             return {"status": "ERROR", "reason": f"Cannot takeoff from state {self.drone.state}"}
 
@@ -98,6 +101,8 @@ class DroneSimulation:
 
     def set_waypoints(self, waypoints: List[List[float]]) -> Dict[str, Any]:
         """Set waypoint navigation mission."""
+        if not self._safety_gate_active:
+            return {"status": "ERROR", "reason": "Direct access denied — use execute_action() with Safety Gateway approval"}
         self.drone.set_state("FLYING")
         self.drone.set_flight_mode("waypoint")
         self.flight_ctrl.set_waypoints(waypoints)
@@ -107,6 +112,8 @@ class DroneSimulation:
 
     def return_to_base(self) -> Dict[str, Any]:
         """Command drone to return to base."""
+        if not self._safety_gate_active:
+            return {"status": "ERROR", "reason": "Direct access denied — use execute_action() with Safety Gateway approval"}
         self.drone.set_state("RETURNING")
         self.drone.set_flight_mode("return_to_base")
         self.flight_ctrl.set_return_to_base()
@@ -231,6 +238,7 @@ class DroneSimulation:
 
     def run_full_cycle(self) -> Dict[str, Any]:
         """Run a full autonomous cycle: takeoff → waypoint → return → land."""
+        self._safety_gate_active = True  # Internal pipeline — safety gate armed
         results = {}
 
         # Takeoff
@@ -260,6 +268,7 @@ class DroneSimulation:
 
     def run_scenario(self, scenario_name: str) -> Dict[str, Any]:
         """Run a predefined scenario."""
+        self._safety_gate_active = True  # Internal pipeline — safety gate armed
         if scenario_name == "normal_flight":
             return self.run_full_cycle()
         elif scenario_name == "low_battery":
@@ -339,6 +348,7 @@ class DroneSimulation:
         params = proposal.action_parameters or {}
         success = False
 
+        self._safety_gate_active = True
         try:
             if action == "takeoff":
                 result = self.takeoff(params.get("altitude", 10.0))
@@ -366,6 +376,8 @@ class DroneSimulation:
                 success = False
         except Exception:
             success = False
+        finally:
+            self._safety_gate_active = False
 
         return ActionExecutionResult(
             outcome=ExecutionOutcome.COMPLETED if success else ExecutionOutcome.FAILED,

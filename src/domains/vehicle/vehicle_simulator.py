@@ -101,6 +101,7 @@ class VehicleSimulation:
         self.time_elapsed: float = 0.0
         self.state_revision: int = 1
         self.safety_events: List[Dict[str, Any]] = []
+        self._safety_gate_active: bool = False  # Set True by propose_action, checked by direct methods
 
     def increment_state_revision(self) -> int:
         self.state_revision += 1
@@ -376,6 +377,19 @@ class VehicleSimulation:
 
     def propose_action(self, proposal: ActionProposal) -> ActionExecutionResult:
         """Arbitrate and execute an ActionProposal through the ORION pipeline."""
+        # Safety Gateway enforcement: all vehicle actions require safety_approved=True
+        # Vehicles are safety-critical (SC-2) — every action must go through Safety Gateway
+        if getattr(proposal, "safety_approved", False) is not True:
+            return ActionExecutionResult(
+                lease_id=generate_contract_id(),
+                outcome=ExecutionOutcome.REJECTED.value,
+                execution_stage=ExecutionStage.COMPLETED.value,
+                actual_duration=0,
+                actual_effects={},
+                deviation={"error": f"Safety Gateway rejection: vehicle action '{proposal.action_type}' requires safety_approved=True"},
+                deviation_reason="Safety Gateway rejection — direct simulator access denied",
+            )
+
         lease_id = generate_contract_id()
         action_type = proposal.action_type
         params = proposal.action_parameters or {}
@@ -450,6 +464,7 @@ class VehicleSimulation:
                     )
 
         # 4. Action execution
+        self._safety_gate_active = True
         start_time = time.monotonic()
 
         try:
@@ -546,6 +561,7 @@ class VehicleSimulation:
 
             duration = time.monotonic() - start_time
             self.increment_state_revision()
+            self._safety_gate_active = False
 
             return ActionExecutionResult(
                 lease_id=lease_id,

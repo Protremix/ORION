@@ -172,6 +172,19 @@ class IndustrialSimulation:
         Performs safety arbitration (ESTOP checks, reach limits, collision detection)
         before executing the requested action on the target entity.
         """
+        # Safety Gateway enforcement: all industrial actions require safety_approved=True
+        # Industrial is safety-critical (SC-2) — every action must go through Safety Gateway
+        if getattr(proposal, "safety_approved", False) is not True:
+            return ActionExecutionResult(
+                lease_id=generate_contract_id(),
+                outcome=ExecutionOutcome.REJECTED.value,
+                execution_stage=ExecutionStage.COMPLETED.value,
+                actual_duration=0,
+                actual_effects={},
+                deviation={"error": f"Safety Gateway rejection: industrial action '{proposal.action_type}' requires safety_approved=True"},
+                deviation_reason="Safety Gateway rejection — direct simulator access denied",
+            )
+
         lease_id = generate_contract_id()
         action_type = proposal.action_type
         target_id = proposal.target_entity
@@ -203,6 +216,7 @@ class IndustrialSimulation:
             )
 
         # 3. Domain Action Execution & Safety Arbitration
+        self._safety_gate_active = True
         start_time = time.monotonic()
 
         try:
@@ -346,6 +360,7 @@ class IndustrialSimulation:
 
             duration_ms = int((time.monotonic() - start_time) * 1000)
             self.increment_state_revision()
+            self._safety_gate_active = False
 
             return ActionExecutionResult(
                 lease_id=lease_id,
@@ -356,6 +371,7 @@ class IndustrialSimulation:
             )
 
         except Exception as exc:
+            self._safety_gate_active = False
             return ActionExecutionResult(
                 lease_id=lease_id,
                 outcome=ExecutionOutcome.FAILED.value,

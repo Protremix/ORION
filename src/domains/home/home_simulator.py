@@ -105,6 +105,7 @@ class HomeSimulation:
         self.time_elapsed: float = 0.0
         self.state_revision: int = 1
         self.safety_events: List[Dict[str, Any]] = []
+        self._safety_gate_active: bool = False  # Set True by execute_action, checked by direct methods
 
     def increment_state_revision(self) -> int:
         self.state_revision += 1
@@ -350,6 +351,7 @@ class HomeSimulation:
         entity = self.entities.get(proposal.target_entity)
         success = False
         error_msg = ""
+        self._safety_gate_active = True
 
         if entity is None:
             error_msg = f"Entity {proposal.target_entity} not found"
@@ -381,6 +383,7 @@ class HomeSimulation:
             except Exception as e:
                 error_msg = str(e)
 
+        self._safety_gate_active = False
         return ActionExecutionResult(
             outcome=ExecutionOutcome.COMPLETED if success else ExecutionOutcome.FAILED,
             execution_stage=ExecutionStage.VERIFIED if success else ExecutionStage.EXECUTING,
@@ -391,6 +394,7 @@ class HomeSimulation:
 
     def run_scenario(self, scenario_name: str) -> Dict[str, Any]:
         """Run a predefined scenario."""
+        self._safety_gate_active = True  # Internal pipeline — safety gate armed
         if scenario_name == "normal":
             return self.run_normal_cycle()
         elif scenario_name == "fire":

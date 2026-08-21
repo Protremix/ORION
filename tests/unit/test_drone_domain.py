@@ -29,6 +29,7 @@ class TestDroneDomain(unittest.TestCase):
 
     def setUp(self):
         self.sim = DroneSimulation()
+        self.sim._safety_gate_active = True  # Arm safety gate for direct method tests
 
     def test_drone_entity_creation(self):
         """Drone entity is created with correct initial state."""

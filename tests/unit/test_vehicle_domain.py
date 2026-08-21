@@ -261,6 +261,7 @@ class TestVehicleDomain(unittest.TestCase):
             target_entity="ego_vehicle",
             action_parameters={"target_speed": 18.0},
         )
+        proposal.safety_approved = True
         exec_res = sim2.propose_action(proposal)
         self.assertEqual(exec_res.outcome, ExecutionOutcome.COMPLETED.value)
         self.assertEqual(sim2.speed_controller.target_speed, 18.0)

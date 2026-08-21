@@ -175,6 +175,7 @@ class TestIndustrialDomain(unittest.TestCase):
             target_entity="robot_arm_1",
             action_parameters={"target_pos": [5.0, 0.0, 0.5]},
         )
+        proposal.safety_approved = True
 
         exec_res = sim.propose_action(proposal)
         self.assertEqual(exec_res.outcome, ExecutionOutcome.FAILED.value)
