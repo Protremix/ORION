@@ -58,8 +58,8 @@ _PROVIDER_CONFIG = {
         "env_key": "OPENROUTER_API_KEY",
     },
     CloudProvider.OLLAMA: {
-        "base_url": "http://2.28.52.223:11434/v1",
-        "env_key": "OLLAMA_API_KEY",  # Not needed, but kept for consistency
+        "base_url": "http://localhost:11434/v1",  # Default; override with OLLAMA_BASE_URL
+        "env_key": "OLLAMA_API_KEY",
     },
 }
 
@@ -89,7 +89,9 @@ class CloudModelAdapter:
         self.provider = provider
         self.model = model
         config = _PROVIDER_CONFIG[provider]
-        self.api_base = config["base_url"]
+        # Allow env var override for base URL (especially for Ollama)
+        env_base_key = f"{provider.value.upper()}_BASE_URL"
+        self.api_base = os.environ.get(env_base_key, config["base_url"])
         self.api_key = api_key or os.environ.get(config["env_key"], "")
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -118,47 +120,91 @@ class CloudModelAdapter:
     # Core API call method
     # =========================================================================
 
+    def _pin_model(self) -> None:
+        """Query Ollama for model digest and environment info."""
+        if self.provider != CloudProvider.OLLAMA:
+            return
+        import httpx
+        try:
+            base = self.api_base.replace("/v1", "")
+            url = f"{base}/api/show"
+            with httpx.Client(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
+                resp = client.post(url, json={"name": self.model})
+                info = resp.json()
+            self._env_info["model_digest"] = info.get("digest", "unknown")
+            self._env_info["quantization"] = info.get("quantize_level", info.get("quantization", "unknown"))
+            self._env_info["ollama_version"] = info.get("ollama_version", "unknown")
+            # Get modelfile details
+            details = info.get("details", {})
+            if details:
+                self._env_info["parameter_size"] = details.get("parameter_size", "unknown")
+                self._env_info["quantization_level"] = details.get("quantization_level", "unknown")
+        except Exception:
+            pass  # Non-fatal — pinning is best-effort
+
+    def get_environment_info(self) -> dict:
+        """Return model and environment info for reproducibility."""
+        return dict(self._env_info)
+
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
-        """Make an OpenAI-compatible chat completion API call."""
+        """Make an LLM API call. Uses Ollama /api/generate for Ollama, OpenAI-compatible for others."""
+        import httpx
+
         self._call_count += 1
         start = time.perf_counter()
 
-        payload = json.dumps({
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-        }).encode()
-
-        url = f"{self.api_base}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-        }
-        # OpenRouter requires these headers
+        headers = {"Content-Type": "application/json"}
         if self.provider == CloudProvider.OPENROUTER:
             headers["HTTP-Referer"] = "https://github.com/Protremix/ORION"
             headers["X-Title"] = "ORION Phase 003"
-        # Ollama doesn't need auth, but the OpenAI-compatible endpoint accepts a dummy key
-        if self.provider == CloudProvider.OLLAMA:
-            headers["Authorization"] = "Bearer ollama"
-        elif self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-
-        req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
 
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                result = json.loads(resp.read().decode())
-                latency = (time.perf_counter() - start) * 1000
-                self._total_latency_ms += latency
-                usage = result.get("usage", {})
-                self._total_tokens += usage.get("total_tokens", 0)
-
-                content = result["choices"][0]["message"]["content"]
-                return content.strip()
+            with httpx.Client(timeout=httpx.Timeout(self.timeout, connect=10.0)) as client:
+                if self.provider == CloudProvider.OLLAMA:
+                    # Use Ollama native /api/generate endpoint (more reliable than /v1/chat/completions)
+                    base = self.api_base.replace("/v1", "")
+                    url = f"{base}/api/generate"
+                    full_prompt = f"{system_prompt}\n\nUser: {user_prompt}\n\nAssistant:"
+                    payload = {
+                        "model": self.model,
+                        "prompt": full_prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": self.temperature,
+                            "num_predict": self.max_tokens,
+                        },
+                    }
+                    resp = client.post(url, json=payload, headers=headers)
+                    resp.raise_for_status()
+                    result = resp.json()
+                    latency = (time.perf_counter() - start) * 1000
+                    self._total_latency_ms += latency
+                    self._total_tokens += result.get("eval_count", 0) + result.get("prompt_eval_count", 0)
+                    content = result.get("response", "").strip()
+                    return content
+                else:
+                    # OpenAI-compatible chat completions
+                    payload = {
+                        "model": self.model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        "temperature": self.temperature,
+                        "max_tokens": self.max_tokens,
+                    }
+                    url = f"{self.api_base}/chat/completions"
+                    if self.api_key:
+                        headers["Authorization"] = f"Bearer {self.api_key}"
+                    resp = client.post(url, json=payload, headers=headers)
+                    resp.raise_for_status()
+                    result = resp.json()
+                    latency = (time.perf_counter() - start) * 1000
+                    self._total_latency_ms += latency
+                    usage = result.get("usage", {})
+                    self._total_tokens += usage.get("total_tokens", 0)
+                    content = result["choices"][0]["message"]["content"]
+                    return content.strip()
         except Exception as e:
             self._errors += 1
             latency = (time.perf_counter() - start) * 1000
@@ -250,40 +296,26 @@ class CloudModelAdapter:
         return {"status": "blocked", "reason": f"Could not parse safety decision: {result}"}
 
     def select_tool(self, task: str) -> str:
-        """Select the appropriate tool for a task.
+        """Select the appropriate tool for a task by querying the LLM.
 
-        Returns semantic action names that benchmarks expect:
-        recall, plan, execute, perceive, check, communicate, diagnose, predict
+        Returns semantic action names: recall, plan, execute, perceive, check,
+        communicate, diagnose, predict.
         """
-        # Direct semantic mapping for known task keywords
-        task_lower = task.lower().strip()
-        if "memory" in task_lower or "recall" in task_lower or "query" in task_lower:
-            return "recall"
-        if "plan" in task_lower or "route" in task_lower:
-            return "plan"
-        if "execute" in task_lower or "act" in task_lower or "move" in task_lower:
-            return "execute"
-        if "perceiv" in task_lower or "sens" in task_lower or "vision" in task_lower:
-            return "perceive"
-        if "safety" in task_lower or "check" in task_lower or "safe" in task_lower:
-            return "check"
-        if "communicat" in task_lower or "send" in task_lower or "message" in task_lower:
-            return "communicate"
-        if "diagnos" in task_lower or "error" in task_lower or "recover" in task_lower:
-            return "diagnose"
-        if "predict" in task_lower or "forecast" in task_lower:
-            return "predict"
-
-        # Fallback: use LLM
         system_prompt = (
             "You are ORION, a Physical Intelligence OS. Given a task, select the most "
             "appropriate semantic action. Respond with ONLY one word from: "
             "recall, plan, execute, perceive, check, communicate, diagnose, predict"
         )
         result = self._call_llm(system_prompt, f"Task: {task}")
-        tool = result.strip().lower()
+        tool = result.strip().lower().split("\n")[0].strip()
         known = {"recall", "plan", "execute", "perceive", "check", "communicate", "diagnose", "predict"}
-        return tool if tool in known else "recall"
+        if tool in known:
+            return tool
+        # Try to match partial
+        for t in known:
+            if t in tool or tool in t:
+                return t
+        return "recall"  # Safe default
 
     def remember(self, data: Any) -> Dict[str, Any]:
         """Store data in memory."""
@@ -292,37 +324,55 @@ class CloudModelAdapter:
         return {"status": "stored", "key": key}
 
     def recall(self, query: str) -> Dict[str, Any]:
-        """Recall information from memory.
+        """Recall information from memory using LLM to process the query.
 
-        Returns dict with 'value' containing the stored value (not nested).
+        The stored memory is provided as context to the LLM.
+        Returns dict with 'value' containing the stored value.
         """
-        # Check local memory — return stored value directly
-        for key, val in self._memory.items():
-            if isinstance(val, dict):
-                return {
-                    "found": True,
-                    "value": val.get("value", val),
-                    "event": val.get("event", key),
-                }
-            return {"found": True, "value": val, "event": key}
+        # Build context from local memory store
+        memory_context = json.dumps(self._memory) if self._memory else "{}"
 
-        # If nothing in local memory, use LLM to simulate recall
         system_prompt = (
-            "You are ORION's memory system. Given a query, provide a relevant recall result. "
+            "You are ORION's memory system. You have stored memories. "
+            "Given a query, search the stored memories and return the matching value. "
+            f"Stored memories: {memory_context}\n\n"
             "Respond with ONLY a JSON object: "
-            '{"found": true/false, "value": <value>, "event": "<event_id>"}'
+            '{"found": true/false, "value": <the_stored_value>, "event": "<event_id>"}'
         )
         result = self._call_llm(system_prompt, f"Query: {query}")
         try:
             recall = json.loads(result)
             if isinstance(recall, dict):
+                # Normalize: if value is nested, extract it
+                if isinstance(recall.get("value"), dict):
+                    inner = recall["value"]
+                    recall["value"] = inner.get("value", inner)
                 return recall
         except (json.JSONDecodeError, TypeError):
             pass
+        # Fallback to local memory if LLM fails
+        for key, val in self._memory.items():
+            if isinstance(val, dict):
+                return {"found": True, "value": val.get("value", val), "event": val.get("event", key)}
+            return {"found": True, "value": val, "event": key}
         return {"found": False, "value": None, "event": ""}
 
     def get_world_state(self) -> Dict[str, Any]:
-        """Get the current world state."""
+        """Get the current world state by querying the LLM."""
+        system_prompt = (
+            "You are ORION's world model. Describe the current world state for an industrial "
+            "robotics scenario. Respond with ONLY a JSON object with at minimum: "
+            '"position": <number>, "velocity": <number>, "domain": "industrial"'
+        )
+        result = self._call_llm(system_prompt, "What is the current world state?")
+        try:
+            state = json.loads(result)
+            if isinstance(state, dict):
+                state.setdefault("timestamp", time.time())
+                state.setdefault("agents", list(self.agents))
+                return state
+        except (json.JSONDecodeError, TypeError):
+            pass
         return {
             "position": 50,
             "velocity": 10,
@@ -342,16 +392,27 @@ class CloudModelAdapter:
         }
 
     def predict_with_confidence(self, scenario: Dict[str, Any]) -> Dict[str, Any]:
-        """Predict with confidence score."""
+        """Predict with confidence score using LLM assessment."""
         prediction = self.predict(scenario)
+        confidence = self.get_confidence()
         return {
             "prediction": prediction,
-            "confidence": 0.85,
+            "confidence": confidence,
         }
 
     def get_confidence(self) -> float:
-        """Get current confidence level."""
-        return 0.85
+        """Get current confidence level by asking the LLM."""
+        system_prompt = (
+            "You are ORION's uncertainty calibration system. "
+            "Given the current state, assess your confidence in your recent predictions. "
+            "Respond with ONLY a number between 0.0 and 1.0 representing your confidence."
+        )
+        result = self._call_llm(system_prompt, "What is your current confidence level?")
+        try:
+            conf = float(result.strip().split("\n")[0])
+            return max(0.0, min(1.0, conf))
+        except (ValueError, TypeError):
+            return 0.85  # Fallback
 
     def perceive(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Perceive multimodal inputs."""

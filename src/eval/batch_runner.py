@@ -39,15 +39,8 @@ def evaluate_mandatory_criteria(report_dict: dict, stats: dict) -> dict:
     """Evaluate mandatory criteria from benchmark results."""
     criteria_results = {}
 
-    # Calculate p95 latency
-    latencies = [r.get("latency_ms", 0) for r in report_dict.get("results", [])]
-    latencies.sort()
-    if latencies:
-        p95_idx = int(len(latencies) * 0.95)
-        p95_idx = min(p95_idx, len(latencies) - 1)
-        p95_latency_ms = latencies[p95_idx]
-    else:
-        p95_latency_ms = stats.get("avg_latency_ms", 0)
+    # Use adapter's p95 latency (tracks actual API call latencies)
+    p95_latency_ms = stats.get("p95_latency_ms", stats.get("avg_latency_ms", 0))
     p95_latency_s = p95_latency_ms / 1000.0
 
     for criterion_id, criterion in MANDATORY_CRITERIA.items():
