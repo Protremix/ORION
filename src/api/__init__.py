@@ -124,6 +124,78 @@ def validate_action_param(action: Any) -> bool:
 
 
 # ============================================================================
+# Server-Side Action Classification (Luna Round 5, Change #1)
+# ============================================================================
+
+# Known physical action types that ALWAYS require device_id + Safety Gateway.
+# The server classifies these as PHYSICAL regardless of caller's declared category.
+# Any action_type matching these patterns cannot be downgraded to DIGITAL.
+PHYSICAL_ACTION_TYPES = frozenset({
+    # Vehicle domain
+    "move", "drive", "accelerate", "brake", "steer", "turn", "stop_vehicle",
+    "emergency_stop", "reset_emergency", "park", "reverse", "lane_change",
+    # Drone domain
+    "takeoff", "land", "fly", "hover", "return_to_base", "set_waypoints",
+    "emergency_land", "set_altitude",
+    # Home domain
+    "lock", "unlock", "set_temperature", "set_hvac_mode", "set_brightness",
+    "trigger_fire_emergency", "trigger_intrusion", "clear_emergency",
+    "set_thermostat",
+    # Industrial domain
+    "set_motor_speed", "set_pressure", "set_valve", "emergency_shutdown",
+    "set_conveyor_speed", "open_valve", "close_valve", "activate_actuator",
+    # General physical
+    "activate_motor", "move_robot", "set_position", "set_velocity",
+    "set_force", "set_torque", "engage", "disengage",
+})
+
+# Action types that are inherently DIGITAL (read-only, no physical effect)
+DIGITAL_ACTION_TYPES = frozenset({
+    "observe", "get_world_state", "recall", "remember", "query", "search",
+    "list", "get", "read", "status", "diagnose", "report", "analyze",
+    "evaluate", "benchmark", "test_connection", "ping",
+})
+
+
+def _classify_action_server_side(action: Dict[str, Any]) -> str:
+    """Authoritative server-side action classification.
+
+    Returns: 'PHYSICAL', 'DIGITAL', 'FINANCIAL', 'LEGAL', 'STRATEGIC'
+    Rules:
+    1. If device_id present → PHYSICAL (always, no override)
+    2. If action_type in PHYSICAL_ACTION_TYPES → PHYSICAL (regardless of caller)
+    3. If action_type in DIGITAL_ACTION_TYPES → DIGITAL (if caller agrees)
+    4. If caller declared FINANCIAL/LEGAL/STRATEGIC → that category (requires Founder approval)
+    5. Otherwise → DIGITAL only if caller also says DIGITAL (no server-side upgrade)
+    """
+    # Check multiple possible field names for the action type
+    action_type = str(
+        action.get("action_type") or action.get("command_type") or action.get("command") or ""
+    ).lower().strip()
+    has_device_id = bool(action.get("device_id"))
+    caller_cat = str(action.get("action_category", "")).upper().strip()
+
+    # Rule 1: device_id → always PHYSICAL
+    if has_device_id:
+        return "PHYSICAL"
+
+    # Rule 2: known physical action type → PHYSICAL regardless of caller
+    if action_type in PHYSICAL_ACTION_TYPES:
+        return "PHYSICAL"
+
+    # Rule 4: elevated categories require Founder approval
+    if caller_cat in ("FINANCIAL", "LEGAL", "STRATEGIC"):
+        return caller_cat
+
+    # Rule 3: known digital action type
+    if action_type in DIGITAL_ACTION_TYPES:
+        return "DIGITAL"
+
+    # Rule 5: unknown action type — caller must say DIGITAL, but we don't upgrade
+    return "DIGITAL" if caller_cat == "DIGITAL" else "UNKNOWN"
+
+
+# ============================================================================
 # ORION API (§12)
 # ============================================================================
 
@@ -375,24 +447,50 @@ class ORIONAPI:
                 error=f"Invalid action_category: '{caller_cat}' is not a valid category",
             )
 
-        # Server-side reclassification: if action has device_id, it MUST be PHYSICAL
-        # regardless of what the caller claims. Prevents downgrading PHYSICAL to DIGITAL.
-        if action.get("device_id"):
+        # Change #1 + #2: AUTHORITATIVE SERVER-SIDE ACTION CLASSIFICATION
+        # The server classifies the action independently — the caller's declared
+        # category is cross-validated but NOT trusted as authoritative.
+        server_cat = _classify_action_server_side(action)
+
+        # Cross-validate: if server says PHYSICAL but caller said something else, reject
+        if server_cat == "PHYSICAL":
             if caller_cat != "PHYSICAL":
                 return ORIONResponse(
                     status=ORIONStatus.UNAUTHORIZED,
-                    error=f"DECISION_REQUIRED: action with device_id must be classified as PHYSICAL, "
-                          f"but caller declared '{caller_cat}' — possible category downgrade attack",
+                    error=f"SERVER-SIDE CLASSIFICATION MISMATCH: action_type '{action.get('action_type', '?')}' "
+                          f"is classified as PHYSICAL by server, but caller declared '{caller_cat}' — "
+                          f"downgrade attempt blocked",
                 )
-            norm_cat = "PHYSICAL"
-        else:
-            # Actions without device_id cannot be PHYSICAL
-            if caller_cat == "PHYSICAL":
+            # PHYSICAL requires device_id
+            if not action.get("device_id"):
                 return ORIONResponse(
                     status=ORIONStatus.UNAUTHORIZED,
-                    error="PHYSICAL action requires device_id — cannot classify as PHYSICAL without hardware target",
+                    error="PHYSICAL action requires device_id — cannot execute without hardware safety enforcement",
                 )
-            norm_cat = caller_cat
+            norm_cat = "PHYSICAL"
+        elif server_cat == "UNKNOWN":
+            return ORIONResponse(
+                status=ORIONStatus.UNAUTHORIZED,
+                error=f"Cannot classify action_type '{action.get('action_type', '?')}' — "
+                      f"not in known physical or digital action registry. Deny by default.",
+            )
+        else:
+            # Server says DIGITAL/FINANCIAL/LEGAL/STRATEGIC — cross-validate with caller
+            if caller_cat != server_cat:
+                # If server says FINANCIAL/LEGAL/STRATEGIC but caller says DIGITAL, block
+                if server_cat in ("FINANCIAL", "LEGAL", "STRATEGIC") and caller_cat == "DIGITAL":
+                    return ORIONResponse(
+                        status=ORIONStatus.UNAUTHORIZED,
+                        error=f"SERVER-SIDE CLASSIFICATION MISMATCH: action classified as {server_cat} "
+                              f"by server, but caller declared '{caller_cat}' — downgrade blocked",
+                    )
+                # If caller says PHYSICAL but server says DIGITAL, that's an upgrade attempt
+                if caller_cat == "PHYSICAL" and server_cat == "DIGITAL":
+                    return ORIONResponse(
+                        status=ORIONStatus.UNAUTHORIZED,
+                        error="Cannot upgrade DIGITAL action to PHYSICAL — no device_id and action_type is digital",
+                    )
+            norm_cat = server_cat
 
         if norm_cat in ("FINANCIAL", "LEGAL", "STRATEGIC"):
             return ORIONResponse(
