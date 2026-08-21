@@ -15,7 +15,7 @@ License: Apache 2.0
 - Phase 002: ORION Evaluation System
 
 ## COMMIT SHA
-19a5c9165501377087bca8adb278de0dc77fa08b
+b6c7e33ca4c2b046cb851520cc2254fc612012ca
 
 ## BRANCH
 main
@@ -80,6 +80,24 @@ Create the official ORION benchmark system (ORION EVAL) with 12 benchmark catego
 | src/eval/run.py | +184 lines: CLI runner |
 | tests/unit/test_phase2_eval.py | +357 lines: 30 tests |
 | docs/phases/PHASE002_SPEC.md | +114 lines: Phase 002 specification |
+
+
+### asyncpg Import Fix (commit b6c7e33)
+| File | Change |
+|------|--------|
+| src/persistence/postgres_storage.py | import asyncpg → try/except, sets asyncpg=None on failure |
+| src/persistence/__init__.py | PostgresStorageManager import → try/except, sets None on failure |
+| src/persistence/storage_factory.py | PostgresStorageManager import → try/except, added None check |
+| docs/audits/PHASE001_RECONCILIATION.md | Updated with verified test counts from clean environment |
+
+ROOT CAUSE: __init__.py unconditionally imported PostgresStorageManager, which
+imports asyncpg at module level. Without asyncpg installed, any test importing
+from src.persistence would fail collection with ModuleNotFoundError.
+
+VERIFICATION:
+- Clean venv with asyncpg: 655 collected, 0 errors, 646 passed, 9 skipped
+- Clean venv WITHOUT asyncpg: 655 collected, 0 errors, 646 passed, 9 skipped
+- Tests needing asyncpg skip gracefully with documented reason
 
 ## TEST RESULTS
 
@@ -216,7 +234,9 @@ CI runs on:
 
 1. Previous Luna review (Phase 001) was based on SUMMARY, not complete repository — insufficient per Permanent Policy v1.0
 2. Previous Luna review (Phase 002) was also summary-based — insufficient per Permanent Policy v1.0
-3. Test count reconciliation: 4 contradictory counts (26/463/573/581) found in old reports — corrected to 616 (now 646 with Phase 002)
+3. Test count reconciliation: 4 contradictory counts (26/463/573/581) found in old reports — corrected to 646 (verified in clean venv)
+4. Collection errors: Independent review found 518 collected with 9 collection errors (ModuleNotFoundError: asyncpg) — FIXED by making imports conditional
+5. All previous counts now classified as OUTDATED or VERIFIED in reconciliation doc
 
 ## FIXES
 
@@ -233,7 +253,7 @@ CI runs on:
 3. **Type:** `mypy src/ --ignore-missing-imports` → Success: no issues found in 62 source files — measured 2026-08-21
 4. **Collection:** `pytest --collect-only -q` → 655 tests collected, 0 errors — measured 2026-08-21
 5. **Git clean state:** `git status` → clean working tree — measured 2026-08-21
-6. **Commit:** 19a5c9165501377087bca8adb278de0dc77fa08b on main — pushed to GitHub
+6. **Commit:** b6c7e33ca4c2b046cb851520cc2254fc612012ca on main — pushed to GitHub
 7. **Security tests:** 35 new tests (10+9+6+10) — all pass
 8. **Eval tests:** 30 new tests — all pass
 
