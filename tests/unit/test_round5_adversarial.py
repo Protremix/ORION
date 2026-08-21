@@ -445,10 +445,10 @@ class TestAuditExceptionIntegration:
         )
         events = audit.get_events()
         fail_event = events[-1]
-        assert fail_event.outcome == Outcome.FAILURE.value, (
+        assert fail_event.outcome == Outcome.FAILED.value, (
             f"Last event must be FAILURE, got {fail_event.outcome}"
         )
-        assert fail_event.safety_decision == SafetyDecision.DENIED.value, (
+        assert fail_event.safety_decision == SafetyDecision.REJECTED.value, (
             f"Last event safety_decision must be DENIED, got {fail_event.safety_decision}"
         )
 
