@@ -88,8 +88,8 @@ class ArbitrationResult:
     hash: str = ""
 
     def compute_hash(self) -> str:
-        import os
         import hmac as _hmac
+        import os
         content = f"{self.result_id}:{self.timestamp}:{self.decision.value}:{self.winning_domain}"
         audit_key = os.environ.get("ORION_AUDIT_KEY") or os.environ.get("ORION_POLICY_KEY")
         if not audit_key:
@@ -373,8 +373,8 @@ class CrossDomainArbitrator:
 
     def verify_log_integrity(self) -> bool:
         """Verify HMAC integrity of arbitration log — fail-closed."""
-        import os
         import hmac as _hmac
+        import os
         audit_key = os.environ.get("ORION_AUDIT_KEY") or os.environ.get("ORION_POLICY_KEY")
         if not audit_key:
             raise PermissionError("ORION_AUDIT_KEY not configured — cannot verify log integrity (fail-closed)")
