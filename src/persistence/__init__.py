@@ -4,12 +4,13 @@ Provides persistent storage (SQLite and PostgreSQL) for memories, audit events, 
 and pgvector memory embeddings.
 """
 
-from src.persistence.pgvector_store import PgVectorStore
-
 try:
+    from src.persistence.pgvector_store import PgVectorStore
     from src.persistence.postgres_storage import PostgresStorageManager
 except ImportError:
     PostgresStorageManager = None
+    PgVectorStore = None
+
 from src.persistence.storage import (
     ActionHistoryRecord,
     AuditEventRecord,

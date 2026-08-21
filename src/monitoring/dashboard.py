@@ -24,6 +24,7 @@ Apache 2.0 Licensed. No external dependencies.
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import time
@@ -325,18 +326,18 @@ class DashboardRenderer:
 
                 rows_html.append(
                     f"<tr>"
-                    f"<td><strong>{domain_id}</strong></td>"
-                    f"<td><span class='status {status_class}'>{sys_status}</span></td>"
-                    f"<td>{state}</td>"
-                    f"<td>{entities}</td>"
-                    f"<td>{safety_events}</td>"
-                    f"<td>{spec_str}</td>"
+                    f"<td><strong>{html.escape(str(domain_id))}</strong></td>"
+                    f"<td><span class='status {html.escape(status_class)}'>{html.escape(str(sys_status))}</span></td>"
+                    f"<td>{html.escape(str(state))}</td>"
+                    f"<td>{html.escape(str(entities))}</td>"
+                    f"<td>{html.escape(str(safety_events))}</td>"
+                    f"<td>{html.escape(str(spec_str))}</td>"
                     f"</tr>"
                 )
 
         rows_content = "\n".join(rows_html) if rows_html else "<tr><td colspan='6'>No domain data available</td></tr>"
 
-        html = f"""<!DOCTYPE html>
+        html_output = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -374,7 +375,7 @@ class DashboardRenderer:
     </table>
 </body>
 </html>"""
-        return html
+        return html_output
 
 
 class AlertManager:

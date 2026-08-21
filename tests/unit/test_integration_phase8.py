@@ -9,30 +9,38 @@ ORION Integration Tests — Luna's Phase 3/5 Conditions
 License: Apache 2.0
 """
 
-import pytest
-import os
 import json
-import time
+import os
 import tempfile
-from unittest.mock import MagicMock, patch, AsyncMock
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.models.gpt4o_adapters import (
-    GPT4oTextAdapter, GPT4oVisionAdapter, OpenAIEmbeddingAdapter,
-    create_default_registry,
-)
-from src.models import TextRequest, VisionRequest, EmbeddingRequest
-from src.planning import (
-    AutonomousPlanner, ExecutionPlan, SubGoal, Action, PlanStatus,
-)
-from src.persistence.task_state import (
-    TaskStateManager, TaskStatus, CheckpointType,
-)
-from src.safety.safety_enforcement import SafetyEnforcement, SafetyScope
-from src.domains.industrial.industrial_simulator import IndustrialSimulation
-from src.domains.vehicle.vehicle_simulator import VehicleSimulation
+import pytest
+
 from src.domains.drone.drone_simulator import DroneSimulation
 from src.domains.home.home_simulator import HomeSimulation
-
+from src.domains.industrial.industrial_simulator import IndustrialSimulation
+from src.domains.vehicle.vehicle_simulator import VehicleSimulation
+from src.models import EmbeddingRequest, TextRequest, VisionRequest
+from src.models.gpt4o_adapters import (
+    GPT4oTextAdapter,
+    GPT4oVisionAdapter,
+    OpenAIEmbeddingAdapter,
+    create_default_registry,
+)
+from src.persistence.task_state import (
+    CheckpointType,
+    TaskStateManager,
+    TaskStatus,
+)
+from src.planning import (
+    Action,
+    AutonomousPlanner,
+    ExecutionPlan,
+    PlanStatus,
+    SubGoal,
+)
+from src.safety.safety_enforcement import SafetyEnforcement, SafetyScope
 
 # ============================================================================
 # Condition 1: Integration Testing of GPT-4o Adapters with Domain Simulators

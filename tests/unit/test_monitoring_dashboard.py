@@ -36,7 +36,6 @@ from src.domains.drone.drone_simulator import DroneSimulation
 from src.domains.home.home_simulator import HomeSimulation
 from src.domains.industrial.industrial_simulator import IndustrialSimulation
 from src.domains.vehicle.vehicle_simulator import VehicleSimulation
-
 from src.monitoring.dashboard import (
     Alert,
     AlertLevel,

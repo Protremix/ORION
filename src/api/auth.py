@@ -31,6 +31,7 @@ class AuthConfig:
     enabled: bool = True
     api_key: Optional[str] = None
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
+    debug_mode: bool = False
 
 
 class AuthManager:
@@ -44,24 +45,25 @@ class AuthManager:
     def __init__(self, config: Optional[AuthConfig] = None) -> None:
         if config is None:
             env_key = os.environ.get("ORION_API_KEY")
+            debug_mode = os.environ.get("ORION_DEBUG_MODE", "").lower() in ("1", "true", "yes")
             config = AuthConfig(
-                enabled=bool(env_key),  # Auto-enable if key is set
+                enabled=True,
                 api_key=env_key,
+                debug_mode=debug_mode,
             )
         self._config = config
         self._request_times: dict[str, Deque[float]] = {}
 
     def authenticate(self, token: Optional[str]) -> bool:
         """Verify a bearer token. Returns True if authenticated."""
+        if self._config.debug_mode:
+            return True  # Explicit debug/test mode allows open access
+
         if not self._config.enabled:
-            return True  # Auth disabled — open access (dev mode)
+            return False  # Fail-closed
 
-        if not token:
-            return False
-
-        if not self._config.api_key:
-            logger.warning("Auth enabled but no API key configured")
-            return False
+        if not token or not self._config.api_key:
+            return False  # Fail-closed if missing API key or token
 
         # Constant-time comparison to prevent timing attacks
         provided = hashlib.sha256(token.encode()).digest()
@@ -70,7 +72,7 @@ class AuthManager:
 
     def check_rate_limit(self, token: Optional[str] = None) -> bool:
         """Check if request is within rate limit. Returns True if allowed."""
-        if not self._config.enabled:
+        if self._config.debug_mode or not self._config.enabled:
             return True
 
         key = token or "anonymous"
@@ -115,7 +117,7 @@ def get_auth_manager() -> AuthManager:
     return _auth_manager
 
 
-def set_auth_manager(manager: AuthManager) -> None:
+def set_auth_manager(manager: Optional[AuthManager]) -> None:
     """Set the global AuthManager (for testing)."""
     global _auth_manager
     _auth_manager = manager

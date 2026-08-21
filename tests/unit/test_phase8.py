@@ -2,30 +2,45 @@
 Tests for GPT-4o concrete adapters, autonomous planner, and task state system.
 """
 
-import pytest
-import os
 import json
+import os
 import tempfile
 import time
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.models.gpt4o_adapters import (
-    GPT4oTextAdapter, GPT4oVisionAdapter, OpenAIEmbeddingAdapter,
-    create_default_registry, _openai_request,
-)
+import pytest
+
 from src.models import (
-    TextRequest, TextResponse, VisionRequest, VisionResponse,
-    EmbeddingRequest, EmbeddingResponse, ModelRegistry,
+    EmbeddingRequest,
+    EmbeddingResponse,
+    ModelRegistry,
+    TextRequest,
+    TextResponse,
+    VisionRequest,
+    VisionResponse,
 )
-from src.planning import (
-    AutonomousPlanner, ExecutionPlan, SubGoal, Action,
-    PlanStatus, 
+from src.models.gpt4o_adapters import (
+    GPT4oTextAdapter,
+    GPT4oVisionAdapter,
+    OpenAIEmbeddingAdapter,
+    _openai_request,
+    create_default_registry,
 )
 from src.persistence.task_state import (
-    TaskStateManager, Task, Checkpoint, SystemState,
-    TaskStatus, CheckpointType,
+    Checkpoint,
+    CheckpointType,
+    SystemState,
+    Task,
+    TaskStateManager,
+    TaskStatus,
 )
-
+from src.planning import (
+    Action,
+    AutonomousPlanner,
+    ExecutionPlan,
+    PlanStatus,
+    SubGoal,
+)
 
 # ============================================================================
 # GPT-4o Adapter Tests (Mocked — no live API calls)

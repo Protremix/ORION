@@ -67,6 +67,27 @@ class ORIONResponse:
 
 
 # ============================================================================
+# Validation Helpers
+# ============================================================================
+
+def validate_input(data: Any) -> bool:
+    """Validate input data is not None."""
+    return data is not None
+
+
+def sanitize_string(val: str) -> str:
+    """Sanitize string input by stripping whitespace."""
+    if not isinstance(val, str):
+        return ""
+    return val.strip()
+
+
+def validate_api_payload(payload: Dict[str, Any]) -> bool:
+    """Validate API payload structure."""
+    return isinstance(payload, dict)
+
+
+# ============================================================================
 # ORION API (§12)
 # ============================================================================
 
@@ -105,7 +126,15 @@ class ORIONAPI:
             return ORIONResponse(status=ORIONStatus.UNAUTHORIZED, error="Invalid or missing API key")
         if not self._auth.check_rate_limit(token):
             return ORIONResponse(status=ORIONStatus.RATE_LIMITED, error="Rate limit exceeded")
-        if agent_id is not None and action is not None:
+        # In debug mode, skip permission checks (for testing only)
+        if self._auth._config.debug_mode:
+            return ORIONResponse(status=ORIONStatus.OK)
+        if not agent_id:
+            return ORIONResponse(
+                status=ORIONStatus.UNAUTHORIZED,
+                error="agent_id is required for permission check",
+            )
+        if action is not None:
             if not self._permissions.check_permission(agent_id, action):
                 return ORIONResponse(
                     status=ORIONStatus.UNAUTHORIZED,
@@ -114,18 +143,29 @@ class ORIONAPI:
         return ORIONResponse(status=ORIONStatus.OK)
 
     # --- Observation ---
-    def observe(self, source: str, query: Dict[str, Any], token: Optional[str] = None) -> ORIONResponse:
+    def observe(
+        self,
+        source: str,
+        query: Dict[str, Any],
+        token: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> ORIONResponse:
         """Observe a digital or physical environment."""
-        auth = self._check_auth(token, action="observe")
+        auth = self._check_auth(token, agent_id=agent_id, action="observe")
         if not auth.ok:
             return auth
         # TODO: Connect to perception plane
         return ORIONResponse(status=ORIONStatus.OK, data={"source": source, "query": query})
 
     # --- World State ---
-    def get_world_state(self, domain: Optional[str] = None, token: Optional[str] = None) -> ORIONResponse:
+    def get_world_state(
+        self,
+        domain: Optional[str] = None,
+        token: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> ORIONResponse:
         """Get current world state."""
-        auth = self._check_auth(token, action="get_world_state")
+        auth = self._check_auth(token, agent_id=agent_id, action="get_world_state")
         if not auth.ok:
             return auth
         if self._supervisor:
@@ -143,9 +183,10 @@ class ORIONAPI:
         memory_type: Optional[str] = None,
         limit: int = 10,
         token: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> ORIONResponse:
         """Recall memories matching a query."""
-        auth = self._check_auth(token, action="recall")
+        auth = self._check_auth(token, agent_id=agent_id, action="recall")
         if not auth.ok:
             return auth
         if self._memory:
@@ -162,9 +203,10 @@ class ORIONAPI:
         memory_type: str = "episodic",
         metadata: Optional[Dict] = None,
         token: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> ORIONResponse:
         """Store a new memory."""
-        auth = self._check_auth(token, action="remember")
+        auth = self._check_auth(token, agent_id=agent_id, action="remember")
         if not auth.ok:
             return auth
         if self._memory:
@@ -176,9 +218,15 @@ class ORIONAPI:
         return ORIONResponse(status=ORIONStatus.OK, data={"stored": False})
 
     # --- Planning ---
-    def plan(self, goal: str, constraints: Optional[Dict] = None, token: Optional[str] = None) -> ORIONResponse:
+    def plan(
+        self,
+        goal: str,
+        constraints: Optional[Dict] = None,
+        token: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> ORIONResponse:
         """Generate a plan for a goal."""
-        auth = self._check_auth(token, action="plan")
+        auth = self._check_auth(token, agent_id=agent_id, action="plan")
         if not auth.ok:
             return auth
         # TODO: Connect to planning plane
@@ -193,9 +241,10 @@ class ORIONAPI:
         action: Dict[str, Any],
         domain: str = "industrial",
         token: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> ORIONResponse:
         """Simulate an action before executing it."""
-        auth = self._check_auth(token, action="simulate")
+        auth = self._check_auth(token, agent_id=agent_id, action="simulate")
         if not auth.ok:
             return auth
         # TODO: Connect to simulation plane
@@ -217,18 +266,36 @@ class ORIONAPI:
         auth = self._check_auth(token, agent_id=agent_id, action="execute")
         if not auth.ok:
             return auth
-        if simulate_first:
-            sim = self.simulate(action, domain)
-            if not sim.ok:
-                return sim
 
-        # Action category enforcement — financial/legal/strategic require Founder approval
-        action_cat = action.get("action_category", "DIGITAL")
-        if isinstance(action_cat, str) and action_cat.upper() in ("FINANCIAL", "LEGAL", "STRATEGIC"):
+        # Action category enforcement — validate and normalize action_category BEFORE simulation
+        raw_cat = action.get("action_category", "DIGITAL")
+        if hasattr(raw_cat, "value"):
+            raw_cat = raw_cat.value
+
+        if not isinstance(raw_cat, str):
             return ORIONResponse(
                 status=ORIONStatus.UNAUTHORIZED,
-                error=f"DECISION_REQUIRED: {action_cat.upper()} action requires Founder approval",
+                error="Invalid action_category: must be a string",
             )
+
+        norm_cat = raw_cat.strip().upper()
+        valid_categories = {"DIGITAL", "FINANCIAL", "LEGAL", "PHYSICAL", "STRATEGIC"}
+        if not norm_cat or norm_cat not in valid_categories:
+            return ORIONResponse(
+                status=ORIONStatus.UNAUTHORIZED,
+                error=f"Invalid action_category: '{raw_cat}' is not a valid category",
+            )
+
+        if norm_cat in ("FINANCIAL", "LEGAL", "STRATEGIC"):
+            return ORIONResponse(
+                status=ORIONStatus.UNAUTHORIZED,
+                error=f"DECISION_REQUIRED: {norm_cat} action requires Founder approval",
+            )
+
+        if simulate_first:
+            sim = self.simulate(action, domain, token=token, agent_id=agent_id)
+            if not sim.ok:
+                return sim
 
         # Safety Gateway check — required for any hardware action
         if action.get("device_id"):
@@ -269,9 +336,14 @@ class ORIONAPI:
         return ORIONResponse(status=ORIONStatus.OK, data={"executed": True})
 
     # --- Emergency ---
-    def emergency_stop(self, domain: Optional[str] = None, token: Optional[str] = None) -> ORIONResponse:
+    def emergency_stop(
+        self,
+        domain: Optional[str] = None,
+        token: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> ORIONResponse:
         """Trigger an emergency stop."""
-        auth = self._check_auth(token, action="emergency_stop")
+        auth = self._check_auth(token, agent_id=agent_id, action="emergency_stop")
         if not auth.ok:
             return auth
         if self._hal:

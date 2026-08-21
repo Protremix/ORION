@@ -139,12 +139,26 @@ class DroneSimulation:
         is_safe, geofence_reason = self.geofence.check_position(self.drone.position)
         if not is_safe:
             events.append(f"Geofence: {geofence_reason}")
+            # Geofence violation is enforced — force emergency landing
+            if self.drone.flight_mode != "emergency_landing":
+                self.emergency_land()
+                events.append("GEOFENCE VIOLATION — emergency landing initiated")
 
         # 3. Apply collision avoidance filter (CBF)
         safe_vel = self.collision_avoidance.filter_velocity(self.drone.position, safe_vel)
         is_collision_safe, collision_reason = self.collision_avoidance.check_safety(self.drone.position, safe_vel)
         if not is_collision_safe:
             events.append(f"Collision: {collision_reason}")
+            # CBF filter has already scaled velocity — check if we are inside obstacle
+            # Only force hover for imminent collision (drone within obstacle radius)
+            for obs in self.collision_avoidance.obstacles:
+                dist_to_obs = sum((p - o) ** 2 for p, o in zip(self.drone.position, obs["position"])) ** 0.5
+                if dist_to_obs < obs["radius"]:
+                    safe_vel = [0.0, 0.0, 0.0]
+                    if self.drone.flight_mode != "emergency_landing":
+                        self.drone.set_state("HOVERING")
+                        events.append("IMMINENT COLLISION — hover to avoid unsafe motion")
+                    break
 
         # 4. Apply wind disturbance
         final_vel = [v + w for v, w in zip(safe_vel, self.wind)]

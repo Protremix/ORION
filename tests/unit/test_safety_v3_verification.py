@@ -10,9 +10,9 @@ Tests Properties 7 through 12 and verify_all() integration:
 - Property 12: Physical Recovery
 """
 
-import unittest
 import os
 import sys
+import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 

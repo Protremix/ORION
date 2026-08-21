@@ -324,9 +324,9 @@ class HardwareAbstractionLayer:
         """List all registered devices."""
         return list(self._device_registry.values())
 
-    def get_device(self, device_id: str) -> Optional[BaseDeviceAdapter]:
-        """Get a device adapter by ID."""
-        return self._adapters.get(device_id)
+    def get_device(self, device_id: str) -> Optional[DeviceDescriptor]:
+        """Get device descriptor by ID. Does NOT expose raw adapter — all commands must go through send_command (Safety Gateway)."""
+        return self._device_registry.get(device_id)
 
     def connect_device(self, device_id: str) -> bool:
         """Connect to a registered device."""

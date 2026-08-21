@@ -7,12 +7,17 @@ License: Apache 2.0
 import json
 import os
 import time
+
 import pytest
+
 from runtime.supervisor import (
-    RuntimeSupervisor, SupervisorStatus, SupervisorState,
-    SupervisorMetrics, ScheduledTask,
+    RuntimeSupervisor,
+    ScheduledTask,
+    SupervisorMetrics,
+    SupervisorState,
+    SupervisorStatus,
 )
-from runtime.worker import Worker, WorkerStatus, WorkerResult
+from runtime.worker import Worker, WorkerResult, WorkerStatus
 
 
 @pytest.fixture(autouse=True)

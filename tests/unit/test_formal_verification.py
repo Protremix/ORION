@@ -15,17 +15,15 @@ Tests the SafetyVerifier for all 12 safety properties:
 12. Physical Recovery
 """
 
-import unittest
 import os
 import sys
+import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.safety.formal_verification import SafetyVerifier, VerificationResult
-from src.safety.cross_domain_arbitration import (
-    CrossDomainArbitrator, SafetyEvent, SafetyCriticality, DomainState
-)
 from src.persistence.storage import StorageManager
+from src.safety.cross_domain_arbitration import CrossDomainArbitrator, DomainState, SafetyCriticality, SafetyEvent
+from src.safety.formal_verification import SafetyVerifier, VerificationResult
 
 
 class TestFormalVerification(unittest.TestCase):

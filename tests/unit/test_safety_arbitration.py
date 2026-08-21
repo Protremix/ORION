@@ -4,30 +4,22 @@ Comprehensive Unit Tests for ORION Safety Enforcement and Action Arbitration.
 
 import time
 import unittest
-from typing import Dict, Any
+from typing import Any, Dict
 
+from src.arbitration import ActionArbitration, ActionProposal, LeaseState, PermittedChannel, RiskTier, SafetyPolicy
 from src.safety import (
     AuthorityState,
-    AuthorizerRole,
-    AuthorizerCredential,
-    TransitionEvidence,
     AuthorityTransitionStateMachine,
-    SafetyEnforcement,
-    VelocityLimitCBF,
-    ForceLimitCBF,
-    SpatialKeepOutCBF,
-    FallbackDomain,
+    AuthorizerCredential,
+    AuthorizerRole,
     CommonCauseFailureHandler,
-    DecisionType
-)
-
-from src.arbitration import (
-    ActionArbitration,
-    ActionProposal,
-    RiskTier,
-    PermittedChannel,
-    LeaseState,
-    SafetyPolicy
+    DecisionType,
+    FallbackDomain,
+    ForceLimitCBF,
+    SafetyEnforcement,
+    SpatialKeepOutCBF,
+    TransitionEvidence,
+    VelocityLimitCBF,
 )
 
 

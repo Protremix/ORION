@@ -4,8 +4,8 @@ Tests the monitoring/alerting system that addresses Luna's Phase 3 Condition #2:
 Monitoring and Alerts for GPT-4o integration anomalies.
 """
 
-import unittest
 import time
+import unittest
 
 from src.monitoring.gpt_monitor import (
     AlertSeverity,

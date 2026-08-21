@@ -2,29 +2,31 @@
 Tests for the ORION API/SDK interfaces — Master Spec §12.
 """
 
+import os
+
 import pytest
+
 from src.api import (
     ORIONAPI,
-    ORIONStatus,
-    ORIONResponse,
-    AgentRole,
     AgentDescriptor,
-    AgentTask,
-    AgentResult,
     AgentProtocol,
+    AgentResult,
+    AgentRole,
+    AgentTask,
+    ModelAdapter,
+    ModelDescriptor,
+    ModelType,
+    ORIONResponse,
+    ORIONStatus,
+    SimulationConfig,
+    SimulationInterface,
+    SimulationResult,
     SkillDescriptor,
     SkillInterface,
     ToolDescriptor,
     ToolInterface,
-    SimulationConfig,
-    SimulationResult,
-    SimulationInterface,
-    ModelType,
-    ModelDescriptor,
-    ModelAdapter,
 )
-from src.hal import HardwareAbstractionLayer, SimulationAdapter, DeviceDescriptor, DeviceType, ConnectionType
-
+from src.hal import ConnectionType, DeviceDescriptor, DeviceType, HardwareAbstractionLayer, SimulationAdapter
 
 # ============================================================================
 # ORION API Tests
@@ -39,50 +41,50 @@ class TestORIONAPI:
 
     def test_observe(self):
         api = ORIONAPI()
-        resp = api.observe("sim", {"type": "grid"})
+        resp = api.observe("sim", {"type": "grid"}, agent_id="test_agent")
         assert resp.ok
         assert resp.data["source"] == "sim"
 
     def test_get_world_state_no_supervisor(self):
         api = ORIONAPI()
-        resp = api.get_world_state()
+        resp = api.get_world_state(agent_id="test_agent")
         assert resp.ok
         assert resp.data == {}
 
     def test_recall_no_memory(self):
         api = ORIONAPI()
-        resp = api.recall("test query")
+        resp = api.recall("test query", agent_id="test_agent")
         assert resp.ok
         assert resp.data == []
 
     def test_remember_no_memory(self):
         api = ORIONAPI()
-        resp = api.remember({"event": "test"})
+        resp = api.remember({"event": "test"}, agent_id="test_agent")
         assert resp.ok
         assert resp.data["stored"] is False
 
     def test_plan(self):
         api = ORIONAPI()
-        resp = api.plan("move robot to position")
+        resp = api.plan("move robot to position", agent_id="test_agent")
         assert resp.ok
         assert resp.data["goal"] == "move robot to position"
 
     def test_simulate(self):
         api = ORIONAPI()
-        resp = api.simulate({"command": "move", "x": 1.0})
+        resp = api.simulate({"command": "move", "x": 1.0}, agent_id="test_agent")
         assert resp.ok
         assert resp.data["result"] == "simulated"
 
     def test_execute_no_safety_rejected(self):
         """Without safety gateway, execute should reject hardware actions."""
         api = ORIONAPI()
-        resp = api.execute({"device_id": "d1", "command_type": "move"}, simulate_first=False)
+        resp = api.execute({"device_id": "d1", "command_type": "move"}, simulate_first=False, agent_id="test_agent")
         # Without safety gateway, the action should be rejected
         assert resp.status == ORIONStatus.UNAUTHORIZED
 
     def test_emergency_stop_no_hal(self):
         api = ORIONAPI()
-        resp = api.emergency_stop()
+        resp = api.emergency_stop(agent_id="supervisor")
         assert resp.ok
         assert resp.data["estop"] == "no_hardware"
 
@@ -97,7 +99,7 @@ class TestORIONAPI:
         hal.connect_device("robot_01")
 
         api = ORIONAPI(hal=hal)
-        resp = api.emergency_stop()
+        resp = api.emergency_stop(agent_id="supervisor")
         assert resp.ok
         assert "robot_01" in resp.data
 

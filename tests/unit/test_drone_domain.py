@@ -4,13 +4,14 @@ Tests the drone domain simulation including takeoff, waypoint navigation,
 geofencing, collision avoidance, battery management, and emergency landing.
 """
 
-import unittest
+import math
 import os
 import sys
-import math
+import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+from src.contracts.contracts import ActionProposal, ExecutionOutcome, RiskTier, generate_contract_id
 from src.domains.drone.drone_entities import (
     AltitudeSensor,
     BatteryManager,
@@ -21,7 +22,6 @@ from src.domains.drone.drone_entities import (
     IMUSensor,
 )
 from src.domains.drone.drone_simulator import DroneSimulation
-from src.contracts.contracts import ActionProposal, ExecutionOutcome, RiskTier, generate_contract_id
 
 
 class TestDroneDomain(unittest.TestCase):

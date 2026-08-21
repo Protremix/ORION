@@ -5,15 +5,16 @@ License: Apache 2.0
 """
 
 import pytest
-from eval import OPIB, OPIBScenario, OPIBResult, EvalCategory, EvalStatus
+
+from eval import OPIB, EvalCategory, EvalStatus, OPIBResult, OPIBScenario
 from eval.opib_scenarios import (
-    create_vehicle_scenarios,
-    create_industrial_scenarios,
-    create_home_scenarios,
-    create_drone_scenarios,
-    create_cross_domain_scenarios,
-    create_all_scenarios,
     OPIBTestSystem,
+    create_all_scenarios,
+    create_cross_domain_scenarios,
+    create_drone_scenarios,
+    create_home_scenarios,
+    create_industrial_scenarios,
+    create_vehicle_scenarios,
 )
 
 

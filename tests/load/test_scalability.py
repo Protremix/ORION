@@ -25,16 +25,16 @@ from typing import List, Tuple
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.persistence.storage import StorageManager
 from src.memory.memory_system import (
     EmbeddingService,
     MemoryStore,
-    SemanticMemory,
     MemoryType,
+    SemanticMemory,
 )
-from src.monitoring.gpt_monitor import GPTIntegrationMonitor, CircuitState
-from src.state.state_plane import StatePlane
+from src.monitoring.gpt_monitor import CircuitState, GPTIntegrationMonitor
+from src.persistence.storage import StorageManager
 from src.safety.safety_enforcement import SafetyEnforcement
+from src.state.state_plane import StatePlane
 
 
 @dataclass
@@ -137,7 +137,7 @@ class TestScalability(unittest.TestCase):
                 confidence=0.9,
             )
             t0 = time.perf_counter()
-            store.write_memory(mem, bypass_validation=True)
+            store.write_memory(mem, actor_permissions=['admin'])
             t1 = time.perf_counter()
             latencies.append((t1 - t0) * 1000)
 
@@ -341,7 +341,7 @@ class TestScalability(unittest.TestCase):
             notes="All 100 objects created and functional"
         )
         self.results.append(result)
-        print(f"\n  Memory: 100 StatePlane objects created successfully")
+        print("\n  Memory: 100 StatePlane objects created successfully")
 
     # ------------------------------------------------------------------
     # Test 7: Concurrency — Threaded Belief State Updates

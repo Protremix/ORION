@@ -8,22 +8,39 @@ import json
 import os
 import sys
 import tempfile
+
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.eval import (
-    ORIONEval, EvalCategory, EvalMetric, EvalResult, EvalStatus,
-    EvalReport, EvaluationTest, OPIB, OPIBScenario,
+    OPIB,
+    EvalCategory,
+    EvalMetric,
+    EvalReport,
+    EvalResult,
+    EvalStatus,
+    EvaluationTest,
+    OPIBScenario,
+    ORIONEval,
 )
 from src.eval.benchmark_tests import (
-    create_all_benchmark_tests, create_orion_eval, __version__,
-    LogicalInferenceTest, GoalDirectedPlanningTest, TaskDecompositionTest,
-    SafetyDecisionTest, PermissionDisciplineTest, ToolSelectionTest,
-    MemoryRecallTest, WorldStateTrackingTest, ErrorRecoveryTest,
-    UncertaintyCalibrationTest, MultimodalUnderstandingTest, AgentCoordinationTest,
+    AgentCoordinationTest,
+    ErrorRecoveryTest,
+    GoalDirectedPlanningTest,
+    LogicalInferenceTest,
+    MemoryRecallTest,
+    MultimodalUnderstandingTest,
+    PermissionDisciplineTest,
+    SafetyDecisionTest,
+    TaskDecompositionTest,
+    ToolSelectionTest,
+    UncertaintyCalibrationTest,
+    WorldStateTrackingTest,
+    __version__,
+    create_all_benchmark_tests,
+    create_orion_eval,
 )
-
 
 # ============================================================================
 # Category Tests
@@ -348,7 +365,7 @@ class TestOPIBIntegration:
 
     def test_opib_run_with_mock(self):
         """OPIB can run with mock system."""
-        from src.eval.opib_scenarios import create_all_scenarios, OPIBTestSystem
+        from src.eval.opib_scenarios import OPIBTestSystem, create_all_scenarios
         opib = OPIB()
         for s in create_all_scenarios():
             opib.add_scenario(s)

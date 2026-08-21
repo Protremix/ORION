@@ -309,6 +309,16 @@ class HomeSimulation:
 
     def execute_action(self, proposal: ActionProposal) -> ActionExecutionResult:
         """Execute an action proposal."""
+        # Safety check: block non-emergency actions during emergency state
+        if self.system_status == "EMERGENCY" and proposal.action_type not in ("trigger_evacuation", "clear_emergency"):
+            return ActionExecutionResult(
+                outcome=ExecutionOutcome.REJECTED,
+                execution_stage=ExecutionStage.COMPLETED,
+                deviation_reason="System in EMERGENCY state — non-emergency actions blocked",
+                producer="HomeSimulation",
+                consumer="ActionArbitration",
+            )
+
         entity = self.entities.get(proposal.target_entity)
         success = False
         error_msg = ""

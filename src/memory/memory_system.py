@@ -867,10 +867,13 @@ class MemoryStore:
         self.poisoning_resistance = poisoning_resistance or PoisoningResistance()
         self.contradiction_detector = contradiction_detector or ContradictionDetector()
         self.pipeline = ValidationPipeline(self.poisoning_resistance, self.contradiction_detector)
-
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self._initialize_tables()
+
+    def verify_writer_permission(self, actor_permissions: List[str], memory_type: MemoryType) -> bool:
+        """Check if actor has permission to write this memory type."""
+        return self.poisoning_resistance.verify_writer_permission(actor_permissions, memory_type)
 
     def _initialize_tables(self):
         """Initializes database schema for cognitive memory and separate audit trail."""
@@ -933,12 +936,18 @@ class MemoryStore:
     def write_memory(
         self,
         entry: MemoryEntry,
-        bypass_validation: bool = False
+        actor_permissions: Optional[List[str]] = None
     ) -> Tuple[Optional[MemoryEntry], ValidationResult]:
         """
         Validates and writes a cognitive memory entry to SQLite storage.
         Automatically generates embedding for Semantic memories if missing.
+        Always validates — no bypass allowed.
         """
+        # Permission check if actor_permissions provided
+        if actor_permissions is not None:
+            if not self.verify_writer_permission(actor_permissions, entry.memory_type):
+                raise PermissionError(f"Insufficient permissions to write {entry.memory_type} memory")
+
         # Ensure embedding for semantic memory or if summary is provided
         if entry.embedding is None and (entry.memory_type == MemoryType.SEMANTIC or entry.summary):
             text_to_embed = entry.summary if entry.summary else json.dumps(entry.content)
@@ -946,13 +955,11 @@ class MemoryStore:
 
         existing_entries = self.query_memories(include_deleted=False)
 
-        if not bypass_validation:
-            val_result = self.pipeline.validate(entry, existing_entries)
-            if not val_result.is_valid:
-                logger.warning(f"Memory write validation failed for ID {entry.id}: {val_result.errors}")
-                return None, val_result
-        else:
-            val_result = ValidationResult(is_valid=True)
+        # Always validate — no bypass allowed
+        val_result = self.pipeline.validate(entry, existing_entries)
+        if not val_result.is_valid:
+            logger.warning(f"Memory write validation failed for ID {entry.id}: {val_result.errors}")
+            return None, val_result
 
         entry.to_dict()
 
@@ -1037,7 +1044,7 @@ class MemoryStore:
 
         return self.write_memory(updated_entry)
 
-    def delete_memory(self, memory_id: str, soft: bool = True) -> bool:
+    def delete_memory(self, memory_id: str, soft: bool = True, actor_permissions: Optional[List[str]] = None) -> bool:
         """Deletes a memory entry (soft delete by default, or hard removal)."""
         existing = self.get_memory(memory_id)
         if not existing:

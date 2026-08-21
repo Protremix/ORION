@@ -8,21 +8,21 @@ import unittest
 from pathlib import Path
 
 from src.audit import (
+    GENESIS_HASH,
+    AuditError,
     AuditEvent,
     AuditLog,
-    AuditError,
+    AuditMemoryIsolationGuard,
+    AuditMemoryPoisoningError,
+    AuditRollbackError,
     AuditStorageError,
     AuditTamperedError,
-    AuditRollbackError,
-    AuditMemoryPoisoningError,
-    AuditMemoryIsolationGuard,
     EventType,
+    FileStorageBackend,
+    InMemoryStorageBackend,
+    Outcome,
     RiskTier,
     SafetyDecision,
-    Outcome,
-    InMemoryStorageBackend,
-    FileStorageBackend,
-    GENESIS_HASH,
 )
 
 

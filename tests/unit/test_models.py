@@ -3,17 +3,29 @@ Tests for ORION Multimodal Adapters — Master Spec §12, §15.
 """
 
 import pytest
-from src.models import (
-    TextModelAdapter, TextRequest, TextResponse,
-    VisionModelAdapter, VisionRequest, VisionResponse,
-    AudioModelAdapter, AudioRequest, AudioResponse,
-    VideoModelAdapter, VideoRequest, VideoResponse,
-    WorldModelAdapter, WorldModelRequest, WorldModelResponse,
-    EmbeddingModelAdapter, EmbeddingRequest, EmbeddingResponse,
-    ModelRegistry,
-)
-from src.api import ModelDescriptor, ModelType
 
+from src.api import ModelDescriptor, ModelType
+from src.models import (
+    AudioModelAdapter,
+    AudioRequest,
+    AudioResponse,
+    EmbeddingModelAdapter,
+    EmbeddingRequest,
+    EmbeddingResponse,
+    ModelRegistry,
+    TextModelAdapter,
+    TextRequest,
+    TextResponse,
+    VideoModelAdapter,
+    VideoRequest,
+    VideoResponse,
+    VisionModelAdapter,
+    VisionRequest,
+    VisionResponse,
+    WorldModelAdapter,
+    WorldModelRequest,
+    WorldModelResponse,
+)
 
 # ============================================================================
 # Mock Adapters

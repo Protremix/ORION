@@ -31,7 +31,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from src.persistence.postgres_storage import PostgresStorageManager
+try:
+    from src.persistence.postgres_storage import PostgresStorageManager
+except ImportError:
+    PostgresStorageManager = None
 
 logger = logging.getLogger("orion.persistence.pgvector")
 

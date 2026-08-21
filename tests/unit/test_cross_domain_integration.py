@@ -11,23 +11,23 @@ Verifies:
 5. Full multi-domain simulation cycle
 """
 
-import unittest
 import os
 import sys
+import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.safety.cross_domain_arbitration import (
-    CrossDomainArbitrator,
-    SafetyEvent,
-    SafetyCriticality,
-    DomainState,
-    ArbitrationDecision,
-)
-from src.domains.industrial.industrial_simulator import IndustrialSimulation
-from src.domains.home.home_simulator import HomeSimulation
-from src.domains.drone.drone_simulator import DroneSimulation
 from src.contracts.contracts import RiskTier
+from src.domains.drone.drone_simulator import DroneSimulation
+from src.domains.home.home_simulator import HomeSimulation
+from src.domains.industrial.industrial_simulator import IndustrialSimulation
+from src.safety.cross_domain_arbitration import (
+    ArbitrationDecision,
+    CrossDomainArbitrator,
+    DomainState,
+    SafetyCriticality,
+    SafetyEvent,
+)
 
 
 class TestCrossDomainIntegration(unittest.TestCase):

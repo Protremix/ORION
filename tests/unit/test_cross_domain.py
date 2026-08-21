@@ -4,19 +4,19 @@ Tests the CrossDomainArbitrator for Industrial + Vehicle coexistence,
 priority-based conflict resolution, emergency cascade, and log integrity.
 """
 
-import unittest
 import os
 import sys
+import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.safety.cross_domain_arbitration import (
-    CrossDomainArbitrator,
-    SafetyEvent,
-    SafetyCriticality,
-    DomainState,
     ArbitrationDecision,
+    CrossDomainArbitrator,
     DomainRegistration,
+    DomainState,
+    SafetyCriticality,
+    SafetyEvent,
 )
 
 

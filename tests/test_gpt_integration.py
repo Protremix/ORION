@@ -37,8 +37,8 @@ from src.contracts import (
 from src.memory.memory_system import (
     EmbeddingService,
     MemoryStore,
-    SemanticMemory,
     MemoryType,
+    SemanticMemory,
 )
 from src.safety.safety_enforcement import SafetyEnforcement
 from src.state.state_plane import StatePlane

@@ -8,11 +8,11 @@ import unittest
 from pathlib import Path
 
 from src.persistence import (
-    StorageManager,
-    MemoryRecord,
+    ActionHistoryRecord,
     AuditEventRecord,
     BeliefStateRecord,
-    ActionHistoryRecord,
+    MemoryRecord,
+    StorageManager,
 )
 
 

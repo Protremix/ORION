@@ -898,6 +898,22 @@ class SafetyEnforcement:
             if founder_credential.role not in (AuthorizerRole.FOUNDER, AuthorizerRole.SAFETY_ASSURANCE_AND_FOUNDER):
                 return False, f"Re-arm failed: Requires FOUNDER credential, got {founder_credential.role.value}", None
 
+            # Verify founder signature cryptographically — do not accept empty or unverified signatures
+            if not founder_credential.signature or founder_credential.signature == "AUTO_CBF_FALLBACK":
+                return False, "Re-arm failed: Founder credential has invalid or empty signature", None
+            policy_key = os.environ.get("ORION_POLICY_KEY")
+            if not policy_key:
+                return False, "Re-arm failed: No policy signing key configured (ORION_POLICY_KEY not set)", None
+            import hashlib as _hashlib
+            import hmac as _hmac
+            expected_sig = _hmac.new(
+                policy_key.encode("utf-8"),
+                f"{founder_credential.authorizer_id}:{founder_credential.role.value}:{founder_credential.timestamp_ns}".encode("utf-8"),
+                _hashlib.sha256
+            ).hexdigest()
+            if not _hmac.compare_digest(founder_credential.signature, expected_sig):
+                return False, "Re-arm failed: Founder credential signature verification failed", None
+
             # Generate evidence
             evidence = TransitionEvidence(
                 evidence_id=_generate_uuidv7(),

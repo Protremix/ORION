@@ -307,6 +307,27 @@ class IndustrialSimulation:
                 effects = self.estop_button.to_dict()
 
             elif action_type == "reset_estop":
+                # Safety check: cannot reset E-stop while hazards remain active
+                if self.light_curtain.is_breached:
+                    return ActionExecutionResult(
+                        lease_id=lease_id,
+                        outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value,
+                        actual_duration=0,
+                        actual_effects=self.estop_button.to_dict(),
+                        deviation={"error": "Cannot reset E-stop: light curtain still breached (hazard active)"},
+                        deviation_reason="Hazard not cleared",
+                    )
+                if self.conveyor.is_running:
+                    return ActionExecutionResult(
+                        lease_id=lease_id,
+                        outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value,
+                        actual_duration=0,
+                        actual_effects=self.estop_button.to_dict(),
+                        deviation={"error": "Cannot reset E-stop: conveyor still running (hazard active)"},
+                        deviation_reason="Hazard not cleared",
+                    )
                 self.estop_button.reset()
                 self.light_curtain.reset()
                 self.system_status = "NOMINAL"

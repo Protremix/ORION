@@ -11,12 +11,25 @@ import unittest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
 
 from memory.memory_system import (
-    MemoryType, SourceType, RetentionType, ContradictionStatus,
-    Provenance, RetentionPolicy, PoisoningMetadata,
-    MemoryEntry, ShortTermMemory, WorkingMemory, EpisodicMemory,
-    SemanticMemory, ProceduralMemory, AuditTrailEntry,
-    EmbeddingService, ContradictionDetector, PoisoningResistance,
-    ValidationPipeline, MemoryStore
+    AuditTrailEntry,
+    ContradictionDetector,
+    ContradictionStatus,
+    EmbeddingService,
+    EpisodicMemory,
+    MemoryEntry,
+    MemoryStore,
+    MemoryType,
+    PoisoningMetadata,
+    PoisoningResistance,
+    ProceduralMemory,
+    Provenance,
+    RetentionPolicy,
+    RetentionType,
+    SemanticMemory,
+    ShortTermMemory,
+    SourceType,
+    ValidationPipeline,
+    WorkingMemory,
 )
 
 
@@ -136,8 +149,8 @@ class TestMemorySubsystem(unittest.TestCase):
             retention_policy=RetentionPolicy(RetentionType.PERMANENT)
         )
 
-        self.store.write_memory(expiring_mem, bypass_validation=True)
-        self.store.write_memory(permanent_mem, bypass_validation=True)
+        self.store.write_memory(expiring_mem, actor_permissions=['admin'])
+        self.store.write_memory(permanent_mem, actor_permissions=['admin'])
 
         purged_count = self.store.enforce_retention_policies(current_time=now)
         self.assertEqual(purged_count, 1)

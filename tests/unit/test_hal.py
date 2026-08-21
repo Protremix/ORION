@@ -2,21 +2,22 @@
 Tests for the ORION Hardware Abstraction Layer (HAL) — Master Spec §11.
 """
 
-import pytest
 import time
+
+import pytest
+
 from src.hal import (
-    HardwareAbstractionLayer,
-    SimulationAdapter,
-    DeviceDescriptor,
+    ConnectionType,
+    DeviceCapability,
     DeviceCommand,
+    DeviceDescriptor,
     DeviceResponse,
     DeviceState,
     DeviceType,
-    ConnectionType,
-    DeviceCapability,
+    HardwareAbstractionLayer,
     SensorReading,
+    SimulationAdapter,
 )
-
 
 # ============================================================================
 # Fixtures

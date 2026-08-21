@@ -4,21 +4,21 @@ Tests the AuditReplicationManager for primary-replica replication,
 hash chain verification, backup/restore, and failure recovery.
 """
 
-import unittest
 import os
+import sqlite3
 import sys
 import tempfile
-import sqlite3
+import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.persistence.storage import StorageManager
 from src.persistence.audit_replication import (
     AuditReplicationManager,
     BackupSnapshot,
-    WALRecord,
     ReplicationStatus,
+    WALRecord,
 )
+from src.persistence.storage import StorageManager
 
 
 class TestReplicationSetup(unittest.TestCase):

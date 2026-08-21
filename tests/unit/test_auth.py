@@ -6,18 +6,30 @@ License: Apache 2.0
 
 import os
 import time
+
 import pytest
-from src.api.auth import AuthManager, AuthConfig, RateLimitConfig
+
+from src.api.auth import AuthConfig, AuthManager, RateLimitConfig
+
+
+@pytest.fixture(autouse=True)
+def _disable_debug_mode():
+    """Disable debug mode for auth tests — we need to test real auth behavior."""
+    old = os.environ.get("ORION_DEBUG_MODE")
+    os.environ.pop("ORION_DEBUG_MODE", None)
+    yield
+    if old is not None:
+        os.environ["ORION_DEBUG_MODE"] = old
 
 
 class TestAuthManager:
     """Test authentication manager."""
 
-    def test_auth_disabled_allows_all(self):
-        """When auth is disabled, all requests pass."""
+    def test_auth_disabled_denies_all(self):
+        """When auth is disabled, all requests are denied (fail-closed)."""
         auth = AuthManager(AuthConfig(enabled=False))
-        assert auth.authenticate(None) is True
-        assert auth.authenticate("anything") is True
+        assert auth.authenticate(None) is False
+        assert auth.authenticate("anything") is False
 
     def test_auth_enabled_requires_token(self):
         """When auth is enabled, missing token is rejected."""
@@ -125,10 +137,18 @@ class TestRateLimiting:
 class TestAPIWithAuth:
     """Test ORION API with authentication."""
 
-    def test_api_works_without_auth_enabled(self):
-        """API works when auth is disabled (dev mode)."""
+    def test_api_fail_closed_when_disabled(self):
+        """API denies requests when auth is disabled (fail-closed)."""
         from src.api import ORIONAPI, ORIONStatus
         auth = AuthManager(AuthConfig(enabled=False))
+        api = ORIONAPI(auth_manager=auth)
+        result = api.observe("test", {"q": 1}, agent_id="test")
+        assert result.ok is False
+
+    def test_api_works_in_debug_mode(self):
+        """API works when debug mode is enabled (testing only)."""
+        from src.api import ORIONAPI, ORIONStatus
+        auth = AuthManager(AuthConfig(enabled=True, api_key="test", debug_mode=True))
         api = ORIONAPI(auth_manager=auth)
         result = api.observe("test", {"q": 1})
         assert result.ok is True
@@ -139,7 +159,7 @@ class TestAPIWithAuth:
         auth = AuthManager(AuthConfig(enabled=True, api_key="secret"))
         api = ORIONAPI(auth_manager=auth)
         # Without token — should be rejected
-        check = api._check_auth(None)
+        check = api._check_auth(None, agent_id="test")
         assert check.status == ORIONStatus.UNAUTHORIZED
 
     def test_api_accepts_valid_token(self):
@@ -147,7 +167,7 @@ class TestAPIWithAuth:
         from src.api import ORIONAPI, ORIONStatus
         auth = AuthManager(AuthConfig(enabled=True, api_key="secret"))
         api = ORIONAPI(auth_manager=auth)
-        check = api._check_auth("secret")
+        check = api._check_auth("secret", agent_id="test")
         assert check.ok is True
 
 
@@ -156,10 +176,14 @@ class TestORIONAPIAuthEnforcement:
 
     def setup_method(self):
         """Set up auth-enabled API."""
-        from src.api.auth import AuthConfig, AuthManager
         from src.api import ORIONAPI
+        from src.api.auth import AuthConfig, AuthManager
         self.auth = AuthManager(AuthConfig(enabled=True, api_key="test-secret-key"))
         self.api = ORIONAPI(auth_manager=self.auth)
+        # Register test agent with permissions for valid-token tests
+        from src.api.permissions import PermissionChecker, PermissionLevel
+        PermissionChecker.clear()
+        PermissionChecker.register_agent_permissions("test", [PermissionLevel.ADMIN])
 
     def teardown_method(self):
         os.environ.pop("ORION_API_KEY", None)
@@ -202,5 +226,5 @@ class TestORIONAPIAuthEnforcement:
 
     def test_observe_with_valid_token(self):
         """Observe with valid token succeeds when auth enabled."""
-        resp = self.api.observe("sim", {"type": "grid"}, token="test-secret-key")
+        resp = self.api.observe("sim", {"type": "grid"}, token="test-secret-key", agent_id="test")
         assert resp.ok

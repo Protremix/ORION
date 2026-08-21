@@ -1,8 +1,10 @@
 """Tests for financial/legal/strategic action enforcement."""
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 
@@ -18,6 +20,7 @@ class TestActionCategoryEnforcement:
         resp = self.api.execute(
             {"action_category": "FINANCIAL", "amount": 1000},
             simulate_first=False,
+            agent_id="test_agent",
         )
         assert not resp.ok
         assert "DECISION_REQUIRED" in resp.error
@@ -28,6 +31,7 @@ class TestActionCategoryEnforcement:
         resp = self.api.execute(
             {"action_category": "LEGAL", "action": "sign_contract"},
             simulate_first=False,
+            agent_id="test_agent",
         )
         assert not resp.ok
         assert "DECISION_REQUIRED" in resp.error
@@ -38,6 +42,7 @@ class TestActionCategoryEnforcement:
         resp = self.api.execute(
             {"action_category": "STRATEGIC", "decision": "pivot_business"},
             simulate_first=False,
+            agent_id="test_agent",
         )
         assert not resp.ok
         assert "DECISION_REQUIRED" in resp.error
@@ -48,6 +53,7 @@ class TestActionCategoryEnforcement:
         resp = self.api.execute(
             {"action_category": "DIGITAL", "command": "log_event"},
             simulate_first=False,
+            agent_id="test_agent",
         )
         assert resp.ok
 
@@ -56,6 +62,7 @@ class TestActionCategoryEnforcement:
         resp = self.api.execute(
             {"command": "log_event"},
             simulate_first=False,
+            agent_id="test_agent",
         )
         assert resp.ok
 
@@ -65,10 +72,13 @@ class TestActionCategoryEnforcement:
         from src.api.auth import AuthConfig, AuthManager
         auth = AuthManager(AuthConfig(enabled=True, api_key="test-key"))
         api = ORIONAPI(auth_manager=auth)
+        from src.api.permissions import PermissionChecker, PermissionLevel
+        PermissionChecker.register_agent_permissions("test_agent", [PermissionLevel.ADMIN])
         resp = api.execute(
             {"action_category": "FINANCIAL", "amount": 5000},
             simulate_first=False,
             token="test-key",
+            agent_id="test_agent",
         )
         assert not resp.ok
         assert "DECISION_REQUIRED" in resp.error
@@ -78,6 +88,7 @@ class TestActionCategoryEnforcement:
         resp = self.api.execute(
             {"device_id": "vehicle_1", "command_type": "move", "action_category": "PHYSICAL"},
             simulate_first=False,
+            agent_id="test_agent",
         )
         assert not resp.ok
         # Should be blocked by safety gateway, not action category
@@ -98,9 +109,10 @@ class TestActionCategoryEnum:
 
     def test_action_proposal_has_category(self):
         """ActionProposal has action_category field with default DIGITAL."""
-        from src.contracts.contracts import ActionProposal, ActionCategory
         # Check that ActionProposal accepts action_category
         import inspect
+
+        from src.contracts.contracts import ActionCategory, ActionProposal
         sig = inspect.signature(ActionProposal.__init__) if hasattr(ActionProposal, '__init__') else None
         # ActionCategory exists and is accessible
         assert ActionCategory.DIGITAL is not None

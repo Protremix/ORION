@@ -367,6 +367,13 @@ class VehicleSimulation:
             "total_steps": len(step_history),
         }
 
+    def _get_front_distance(self) -> Optional[float]:
+        """Get distance to nearest front obstacle."""
+        try:
+            return self.obstacle_sensor.get_min_distance("front")
+        except Exception:
+            return None
+
     def propose_action(self, proposal: ActionProposal) -> ActionExecutionResult:
         """Arbitrate and execute an ActionProposal through the ORION pipeline."""
         lease_id = generate_contract_id()
@@ -385,7 +392,64 @@ class VehicleSimulation:
                 deviation_reason="Vehicle system in EMERGENCY state",
             )
 
-        # 2. Action execution
+        # 2. Input validation — reject NaN, infinity, negative speed
+        try:
+            if action_type == "accelerate":
+                accel = float(params.get("acceleration", 1.0))
+                if math.isnan(accel) or math.isinf(accel):
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects={}, deviation={"error": "Invalid acceleration: NaN/inf"},
+                        deviation_reason="Invalid input")
+            elif action_type == "brake":
+                decel = float(params.get("deceleration", -2.0))
+                if math.isnan(decel) or math.isinf(decel):
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects={}, deviation={"error": "Invalid deceleration: NaN/inf"},
+                        deviation_reason="Invalid input")
+            elif action_type == "steer":
+                angle = float(params.get("steering_angle", 0.0))
+                if math.isnan(angle) or math.isinf(angle):
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects={}, deviation={"error": "Invalid steering: NaN/inf"},
+                        deviation_reason="Invalid input")
+            elif action_type == "set_speed":
+                target_speed = float(params.get("target_speed", 20.0))
+                if math.isnan(target_speed) or math.isinf(target_speed) or target_speed < 0:
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects={}, deviation={"error": "Invalid target speed: NaN/inf/negative"},
+                        deviation_reason="Invalid input")
+        except (ValueError, TypeError):
+            return ActionExecutionResult(
+                lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                actual_effects={}, deviation={"error": "Invalid numeric parameter"},
+                deviation_reason="Invalid input")
+
+        # 3. AEB/CBF pre-check — reject actions that would cause collision
+        if action_type in ("accelerate", "steer", "lane_change", "set_speed"):
+            front_dist = self._get_front_distance()
+            if front_dist is not None and front_dist < 5.0:
+                should_trigger, aeb_decel = self.aeb_controller.evaluate(
+                    current_speed=self.ego_vehicle.speed, obstacle_distance=front_dist
+                )
+                if should_trigger and aeb_decel > 0:
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects=self.ego_vehicle.to_dict(),
+                        deviation={"error": f"AEB active: obstacle at {front_dist:.1f}m, action rejected"},
+                        deviation_reason="AEB collision risk",
+                    )
+
+        # 4. Action execution
         start_time = time.monotonic()
 
         try:
@@ -433,6 +497,16 @@ class VehicleSimulation:
                 effects = self.ego_vehicle.to_dict()
 
             elif action_type == "reset_emergency":
+                # Require authorization to reset emergency state
+                authorized = params.get("authorized", False)
+                if not authorized:
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects=self.ego_vehicle.to_dict(),
+                        deviation={"error": "Emergency reset requires authorization"},
+                        deviation_reason="Unauthorized emergency reset",
+                    )
                 self.aeb_controller.reset()
                 self.ego_vehicle.set_state("STOPPED")
                 self.system_status = "NOMINAL"

@@ -1,7 +1,7 @@
 """Unit tests for ORION Industrial Domain Module (Phase 2)."""
 
 import unittest
-from typing import Dict, Any
+from typing import Any, Dict
 
 from src.contracts.contracts import ActionProposal, ExecutionOutcome
 from src.domains.industrial.industrial_entities import (

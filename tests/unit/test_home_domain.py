@@ -4,17 +4,18 @@ Tests the smart home domain simulation including HVAC, lighting, security,
 smart locks, smoke detectors, energy monitoring, and evacuation mode.
 """
 
-import unittest
 import os
 import sys
+import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+from src.contracts.contracts import ActionProposal, ExecutionOutcome, RiskTier, generate_contract_id
 from src.domains.home.home_entities import (
     EnergyMonitor,
     EvacuationController,
-    HVACController,
     HomeEntity,
+    HVACController,
     LightingController,
     RoomEntity,
     SecuritySensor,
@@ -22,7 +23,6 @@ from src.domains.home.home_entities import (
     SmokeDetector,
 )
 from src.domains.home.home_simulator import HomeSimulation
-from src.contracts.contracts import ActionProposal, ExecutionOutcome, RiskTier, generate_contract_id
 
 
 class TestHomeDomain(unittest.TestCase):

@@ -3,19 +3,19 @@ Tests for ORION Evaluation Framework (§20) and OPIB (§21).
 """
 
 import pytest
+
 from src.eval import (
-    ORIONEval,
+    OPIB,
     EvalCategory,
     EvalMetric,
+    EvalReport,
     EvalResult,
     EvalStatus,
-    EvalReport,
     EvaluationTest,
-    OPIB,
-    OPIBScenario,
     OPIBResult,
+    OPIBScenario,
+    ORIONEval,
 )
-
 
 # ============================================================================
 # Eval Metric / Result Tests

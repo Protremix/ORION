@@ -17,11 +17,11 @@ License: Apache 2.0
 """
 
 import asyncio
+import json
 import os
 import sys
 import time
 import unittest
-import json
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -110,7 +110,7 @@ class TestLivePostgresStorage(unittest.TestCase):
             )
         events = self.mgr.query_audit_events()
         self.assertEqual(len(events), 10)
-        
+
         # Verify chain
         prev_hash = "0" * 64
         for event in events:
@@ -216,7 +216,7 @@ class TestLivePostgresPgvector(unittest.TestCase):
             database=os.environ.get("ORION_PG_DB", "orion"),
         )
         cls.mgr.initialize()
-        
+
         # Check if pgvector extension is available
         try:
             cls.mgr._execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -243,7 +243,7 @@ class TestLivePostgresPgvector(unittest.TestCase):
                 embedding vector(3072)
             )
         """)
-        
+
         # Insert test vectors (simplified for test)
         # In real usage, these would be 3072-dim embeddings from OpenAI
         # For testing, use small vectors
@@ -255,14 +255,14 @@ class TestLivePostgresPgvector(unittest.TestCase):
                 embedding vector(3)
             )
         """)
-        
+
         cls.mgr._execute(
             "INSERT INTO test_embeddings_small VALUES ('1', 'hello world', '[0.1, 0.2, 0.3]')"
         )
         cls.mgr._execute(
             "INSERT INTO test_embeddings_small VALUES ('2', 'goodbye world', '[0.4, 0.5, 0.6]')"
         )
-        
+
         # Search by similarity
         results = cls.mgr._fetch(
             "SELECT id, content, embedding <=> '[0.1, 0.2, 0.3]' as distance "
@@ -270,7 +270,7 @@ class TestLivePostgresPgvector(unittest.TestCase):
         )
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], "1")  # Should match itself
-        
+
         # Clean up
         cls.mgr._execute("DROP TABLE IF EXISTS test_embeddings_small")
 
@@ -309,19 +309,19 @@ class TestDockerComposeConfig(unittest.TestCase):
                 "orion_pgvector_data": None,
             },
         }
-        
+
         # Validate structure
         self.assertEqual(compose_config["version"], "3.8")
         self.assertIn("postgres", compose_config["services"])
         self.assertIn("postgres-pgvector", compose_config["services"])
-        
+
         # Validate pgvector image
         pgvector_service = compose_config["services"]["postgres-pgvector"]
         self.assertEqual(pgvector_service["image"], "pgvector/pgvector:pg16")
-        
+
         # Validate port mapping
         self.assertEqual(pgvector_service["ports"], ["5433:5432"])
-        
+
         # Write docker-compose file for reference
         import json
         compose_path = os.path.join(os.path.dirname(__file__), "..", "..", "docker-compose.yml")

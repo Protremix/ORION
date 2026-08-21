@@ -10,11 +10,12 @@ Token costs are accepted per Founder directive.
 License: Apache 2.0
 """
 
-import pytest
-import os
-import json
-import time
 import base64
+import json
+import os
+import time
+
+import pytest
 
 # Skip all tests in this module if no API key
 pytestmark = pytest.mark.skipif(
@@ -22,14 +23,15 @@ pytestmark = pytest.mark.skipif(
     reason="No OpenAI API key available (OPENAI_PROJECT_KEY or OPENAI_API_KEY)"
 )
 
+from src.models import EmbeddingRequest, TextRequest, VisionRequest
 from src.models.gpt4o_adapters import (
-    GPT4oTextAdapter, GPT4oVisionAdapter, OpenAIEmbeddingAdapter,
+    GPT4oTextAdapter,
+    GPT4oVisionAdapter,
+    OpenAIEmbeddingAdapter,
     create_default_registry,
 )
-from src.models import TextRequest, VisionRequest, EmbeddingRequest
 from src.planning import AutonomousPlanner, PlanStatus
-from src.world_model import WorldModel, StateSnapshot
-
+from src.world_model import StateSnapshot, WorldModel
 
 # ============================================================================
 # Live Text Adapter Tests
@@ -83,7 +85,8 @@ class TestLiveTextAdapter:
 class TestLiveVisionAdapter:
     @pytest.fixture
     def cat_image_b64(self):
-        import urllib.request, base64
+        import base64
+        import urllib.request
         url = "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=200"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -250,7 +253,8 @@ class TestLiveEndToEnd:
         assert emb_resp.dimensions > 0
 
         # Vision (download image, send as base64)
-        import urllib.request, base64
+        import base64
+        import urllib.request
         img_url = "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=200"
         img_req = urllib.request.Request(img_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(img_req, timeout=10) as img_resp:

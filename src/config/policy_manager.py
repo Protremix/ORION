@@ -140,11 +140,11 @@ class PolicyManager:
             self.secret_key = secret_key
         elif env_key:
             self.secret_key = env_key
-        elif is_production:
-            raise ValueError("ORION_POLICY_KEY environment variable is required in production environment")
         else:
-            self.secret_key = secrets.token_hex(32)
-            logger.warning("No policy signing key provided (ORION_POLICY_KEY not set). Generated ephemeral key for development/test mode.")
+            # Fail-closed: no policy key means no policies can be signed or activated
+            # All actions will be denied
+            self.secret_key = None
+            logger.warning("No policy signing key provided (ORION_POLICY_KEY not set). Policy enforcement is fail-closed — all actions will be denied.")
         self.policy_dir = policy_dir or os.path.join(
             os.path.dirname(__file__), "..", "..", "config", "policies"
         )
@@ -246,11 +246,9 @@ class PolicyManager:
         else:
             raise TypeError("policy_or_version must be a version string or Policy instance")
 
-        # Rule 1: No unsigned policy loaded
+        # Rule 1: No unsigned or invalid-signature policy loaded
         if not self.verify_policy_signature(target_policy, secret_key):
-            # Special case for pre-configured signed json fixtures if key matches default
-            if not target_policy.signature:
-                raise ValueError(f"Policy '{target_policy.version}' is unsigned and cannot be activated")
+            raise ValueError(f"Policy '{target_policy.version}' has invalid or missing signature and cannot be activated")
 
         # Rule 2: Version monotonicity check
         if self._active_policy and self._system_state == SystemSafetyState.NORMAL.value:
@@ -322,10 +320,9 @@ class PolicyManager:
 
         # Section 8.4: Conflict Resolution (Priority: Hardware safe-state > last-known-safe policy > no policy)
         if not target_policy:
-            logger.error("Last-known-safe policy missing or invalid. Invoking fallback safe state policy.")
-            fallback_policy = Policy.from_dict(DEFAULT_FALLBACK_SAFE_POLICY_DICT)
-            self.sign_policy(fallback_policy, signer_id="SafetyAssuranceFallback")
-            target_policy = fallback_policy
+            logger.error("Last-known-safe policy missing or invalid. Entering EMERGENCY state — all actions denied.")
+            self._system_state = SystemSafetyState.EMERGENCY.value
+            return None
 
         # Archive broken active policy
         if self._active_policy:
@@ -510,7 +507,12 @@ class PolicyManager:
         return policy
 
     def _initialize_default_policies(self) -> None:
-        """Load default safety limits and capability tiers if config files exist."""
+        """Load default safety limits and capability tiers if config files exist.
+        Fail-closed: if no key or no config files, no policy is activated."""
+        if self.secret_key is None:
+            logger.warning("No policy signing key — skipping default policy initialization (fail-closed).")
+            return
+
         try:
             limits_file = os.path.join(self.policy_dir, "default_safety_limits.json")
             caps_file = os.path.join(self.policy_dir, "capability_tiers.json")
@@ -533,12 +535,6 @@ class PolicyManager:
                 self.sign_policy(default_policy, signer_id="SafetyAssurance")
                 self.activate_policy(default_policy)
             else:
-                # Fallback to hardcoded safe default policy if JSON files not found
-                fallback = Policy.from_dict(DEFAULT_FALLBACK_SAFE_POLICY_DICT)
-                self.sign_policy(fallback, signer_id="SafetyAssuranceCore")
-                self.activate_policy(fallback)
+                logger.warning("Default policy config files not found. No policy activated (fail-closed).")
         except Exception as exc:
-            logger.warning("Could not auto-initialize default policies: %s. Using hardcoded fallback.", exc)
-            fallback = Policy.from_dict(DEFAULT_FALLBACK_SAFE_POLICY_DICT)
-            self.sign_policy(fallback, signer_id="SafetyAssuranceCore")
-            self.activate_policy(fallback)
+            logger.error("Could not auto-initialize default policies: %s. No policy activated (fail-closed).", exc)

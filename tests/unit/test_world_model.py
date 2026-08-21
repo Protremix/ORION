@@ -2,15 +2,21 @@
 Tests for ORION World Model — Phase 4 (Physics Simulation, Prediction, Uncertainty)
 """
 
-import pytest
 import math
 import time
 
-from src.world_model import (
-    WorldModel, StateSnapshot, PredictionResult, PredictionConfidence,
-    IndustrialPhysics, VehiclePhysics, DronePhysics, HomePhysics,
-)
+import pytest
 
+from src.world_model import (
+    DronePhysics,
+    HomePhysics,
+    IndustrialPhysics,
+    PredictionConfidence,
+    PredictionResult,
+    StateSnapshot,
+    VehiclePhysics,
+    WorldModel,
+)
 
 # ============================================================================
 # Physics Model Tests

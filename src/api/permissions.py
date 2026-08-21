@@ -20,6 +20,27 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 logger = logging.getLogger(__name__)
 
 
+SAFETY_CRITICAL_ACTIONS: Set[str] = {
+    "override_safety",
+    "shutdown_system",
+    "emergency_stop",
+    "authorize_action",
+    "revoke_lease",
+}
+
+
+def _is_safety_critical(action: Union[str, PermissionLevel]) -> bool:
+    """Check if an action or endpoint is safety-critical."""
+    if isinstance(action, str):
+        act_clean = action.strip().lower()
+        if act_clean in SAFETY_CRITICAL_ACTIONS:
+            return True
+        for sc in SAFETY_CRITICAL_ACTIONS:
+            if sc in act_clean:
+                return True
+    return False
+
+
 class PermissionLevel(str, Enum):
     """Permission levels in ORION, ordered by increasing privilege."""
     READ = "READ"
@@ -85,6 +106,8 @@ class Permission:
         "shutdown_system": PermissionLevel.SUPERVISOR,
         "modify_config": PermissionLevel.SUPERVISOR,
         "emergency_stop": PermissionLevel.SUPERVISOR,
+        "authorize_action": PermissionLevel.SUPERVISOR,
+        "revoke_lease": PermissionLevel.SUPERVISOR,
     }
 
     # Endpoint to permission level mappings
@@ -252,6 +275,8 @@ class PermissionChecker:
                 required_level = PermissionLevel[action_name.upper()]
             else:
                 required_level = Permission.get_required_level(action_name)
+                if required_level is None:
+                    required_level = Permission.get_endpoint_level(action_name)
 
         # Check explicit permissions and level hierarchy
         for perm in agent_perms:
@@ -259,8 +284,10 @@ class PermissionChecker:
             if action_name and isinstance(perm, str) and perm.lower() == action_name.lower():
                 return True
 
-            # 2. Wildcard or full supervisor permission
+            # 2. Wildcard or full supervisor permission (cannot grant safety-critical actions)
             if isinstance(perm, str) and perm.strip() in ("*", "ALL"):
+                if (action and _is_safety_critical(action)) or (action_name and _is_safety_critical(action_name)):
+                    continue
                 return True
 
             # 3. Level hierarchy rank check
@@ -285,11 +312,7 @@ class PermissionChecker:
         if not endpoint or not isinstance(endpoint, str):
             return False
 
-        required_level = Permission.get_endpoint_level(endpoint)
-        if required_level is None:
-            return cls.check_permission(agent_id, endpoint)
-
-        return cls.check_permission(agent_id, required_level)
+        return cls.check_permission(agent_id, endpoint)
 
     @classmethod
     def clear(cls) -> None:

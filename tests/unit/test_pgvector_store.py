@@ -29,14 +29,14 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from src.persistence.pgvector_store import (
+    BATCH_STORE_EMBEDDINGS_SQL,
+    CREATE_MEMORY_EMBEDDINGS_INDEX_SQL,
+    CREATE_MEMORY_EMBEDDINGS_TABLE_SQL,
+    CREATE_VECTOR_EXTENSION_SQL,
+    SEMANTIC_SEARCH_SQL,
+    STORE_EMBEDDING_SQL,
     PgVectorStore,
     cosine_similarity,
-    CREATE_VECTOR_EXTENSION_SQL,
-    CREATE_MEMORY_EMBEDDINGS_TABLE_SQL,
-    CREATE_MEMORY_EMBEDDINGS_INDEX_SQL,
-    STORE_EMBEDDING_SQL,
-    SEMANTIC_SEARCH_SQL,
-    BATCH_STORE_EMBEDDINGS_SQL,
 )
 
 

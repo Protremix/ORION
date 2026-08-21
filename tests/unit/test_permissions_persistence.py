@@ -1,9 +1,11 @@
 """Tests for persistent permission registry."""
 
 import os
-import tempfile
-import pytest
 import sys
+import tempfile
+
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.api.permissions import PermissionChecker, PermissionLevel

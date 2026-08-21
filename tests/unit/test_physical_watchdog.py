@@ -2,11 +2,11 @@
 Unit tests for ORION Physical Watchdog system v3.
 """
 
-import unittest
-import time
-import threading
 import os
 import sys
+import threading
+import time
+import unittest
 from typing import List
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))

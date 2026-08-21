@@ -5,13 +5,14 @@ License: Apache 2.0
 """
 
 import pytest
+
+from src.api import AgentDescriptor, AgentRole
 from src.api.permissions import (
-    PermissionLevel,
     Permission,
     PermissionChecker,
+    PermissionLevel,
     _get_level_rank,
 )
-from src.api import AgentDescriptor, AgentRole
 
 
 @pytest.fixture(autouse=True)
@@ -282,8 +283,17 @@ def test_case_insensitive_permission_strings():
 
 
 def test_wildcard_permissions():
+    """Wildcard grants normal actions but NOT safety-critical ones."""
     PermissionChecker.register_agent_permissions("god_agent", ["*"])
 
+    # Normal actions granted by wildcard
     assert PermissionChecker.check_permission("god_agent", "query_memory") is True
-    assert PermissionChecker.check_permission("god_agent", "shutdown_system") is True
-    assert PermissionChecker.check_api_access("god_agent", "/api/v1/system/shutdown") is True
+    # Safety-critical actions NOT granted by wildcard
+    assert PermissionChecker.check_permission("god_agent", "shutdown_system") is False
+    assert PermissionChecker.check_permission("god_agent", "emergency_stop") is False
+    assert PermissionChecker.check_permission("god_agent", "override_safety") is False
+    assert PermissionChecker.check_permission("god_agent", "authorize_action") is False
+    assert PermissionChecker.check_permission("god_agent", "revoke_lease") is False
+    # Safety-critical requires explicit SUPERVISOR level
+    PermissionChecker.register_agent_permissions("supervisor_agent", [PermissionLevel.SUPERVISOR])
+    assert PermissionChecker.check_permission("supervisor_agent", "shutdown_system") is True

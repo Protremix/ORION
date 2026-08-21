@@ -387,14 +387,11 @@ class StorageManager:
 
         event_id = str(data.get("id") or data.get("event_id") or str(uuid.uuid4()))
 
-        # Determine sequence number if not given
-        seq_num = data.get("sequence_number")
-        if seq_num is None or int(seq_num) <= 0:
-            cursor = self.conn.execute("SELECT MAX(sequence_number) FROM audit_events")
-            max_seq = cursor.fetchone()[0]
-            seq_num = (max_seq + 1) if max_seq is not None else 1
-        else:
-            seq_num = int(seq_num)
+        # ALWAYS compute sequence number internally — ignore any caller-supplied value
+        seq_num = data.pop("sequence_number", None)
+        cursor = self.conn.execute("SELECT MAX(sequence_number) FROM audit_events")
+        max_seq = cursor.fetchone()[0]
+        seq_num = (max_seq + 1) if max_seq is not None else 1
 
         event_type = str(data.get("event_type", "decision"))
         event_data = data.get("event_data")
@@ -405,34 +402,30 @@ class StorageManager:
         actor = str(data.get("actor", ""))
         ts = int(data.get("timestamp", int(time.time())))
         severity = str(data.get("severity") or data.get("risk_tier") or "info")
-        signature = str(data.get("signature", ""))
+        # Ignore caller-supplied signature — signatures must be computed internally
+        data.pop("signature", None)
+        signature = ""  # TODO: compute via env-based signing key
 
-        # Previous hash auto-chaining
-        prev_hash = data.get("previous_hash")
-        if not prev_hash:
-            cursor = self.conn.execute(
-                "SELECT hash FROM audit_events ORDER BY sequence_number DESC LIMIT 1"
-            )
-            last_row = cursor.fetchone()
-            prev_hash = last_row["hash"] if last_row and last_row["hash"] else GENESIS_HASH
-        else:
-            prev_hash = str(prev_hash)
+        # ALWAYS compute previous_hash internally — ignore any caller-supplied value
+        data.pop("previous_hash", None)
+        cursor = self.conn.execute(
+            "SELECT hash FROM audit_events ORDER BY sequence_number DESC LIMIT 1"
+        )
+        last_row = cursor.fetchone()
+        prev_hash = last_row["hash"] if last_row and last_row["hash"] else GENESIS_HASH
 
-        # Hash auto-calculation
-        event_hash = data.get("hash")
-        if not event_hash:
-            event_hash = compute_audit_hash(
-                event_id=event_id,
-                sequence_number=seq_num,
-                event_type=event_type,
-                event_data=event_data,
-                actor=actor,
-                timestamp=ts,
-                previous_hash=prev_hash,
-                severity=severity,
-            )
-        else:
-            event_hash = str(event_hash)
+        # ALWAYS compute hash internally — ignore any caller-supplied value
+        data.pop("hash", None)
+        event_hash = compute_audit_hash(
+            event_id=event_id,
+            sequence_number=seq_num,
+            event_type=event_type,
+            event_data=event_data,
+            actor=actor,
+            timestamp=ts,
+            previous_hash=prev_hash,
+            severity=severity,
+        )
 
         sql = """
             INSERT INTO audit_events (
@@ -477,9 +470,11 @@ class StorageManager:
         if not existing:
             return None
 
+        # Audit events are append-only — do NOT allow updating hash, sequence,
+        # previous_hash, or signature fields
         allowed_cols = {
-            "sequence_number", "event_type", "event_data", "actor",
-            "timestamp", "previous_hash", "hash", "signature", "severity"
+            "event_type", "event_data", "actor",
+            "timestamp", "severity"
         }
         set_clauses = []
         vals = []
@@ -500,8 +495,10 @@ class StorageManager:
         self._commit_if_not_in_transaction()
         return self.get_audit_event(event_id)
 
-    def delete_audit_event(self, event_id: str) -> bool:
-        """Deletes an audit event by ID."""
+    def delete_audit_event(self, event_id: str, admin_override: bool = False) -> bool:
+        """Deletes an audit event by ID. Restricted to admin override only."""
+        if not admin_override:
+            raise PermissionError("Audit events are append-only and cannot be deleted without admin override")
         cursor = self.conn.execute("DELETE FROM audit_events WHERE id = ?", (event_id,))
         self._commit_if_not_in_transaction()
         return cursor.rowcount > 0
@@ -520,7 +517,13 @@ class StorageManager:
         for i, event in enumerate(events):
             # 1. Verify previous hash chain connection
             if i == 0:
-                pass
+                # Validate genesis event — first event must have GENESIS_HASH as previous_hash
+                if event.get("previous_hash") != GENESIS_HASH:
+                    logger.error(
+                        f"Audit genesis event has invalid previous_hash: expected {GENESIS_HASH}, "
+                        f"got {event.get('previous_hash')}"
+                    )
+                    return False
             else:
                 prev_event_hash = events[i - 1].get("hash", "")
                 if event.get("previous_hash") != prev_event_hash:
