@@ -47,7 +47,7 @@ class TestPersistenceSubsystem(unittest.TestCase):
             confidence=0.95,
             timestamp=1000,
         )
-        created = self.storage.create_memory(rec)
+        created = self.storage.create_memory(rec, actor_permissions=["WRITE", "ADMIN"])
         self.assertEqual(created["id"], "mem-001")
         self.assertEqual(created["memory_type"], "semantic")
         self.assertEqual(created["confidence"], 0.95)
@@ -59,12 +59,12 @@ class TestPersistenceSubsystem(unittest.TestCase):
         self.assertEqual(read_mem["source"], "cognitive_plane")
 
         # 3. Update
-        updated = self.storage.update_memory("mem-001", confidence=0.99, contradiction_flag=1)
+        updated = self.storage.update_memory("mem-001", actor_permissions=["WRITE", "ADMIN"], confidence=0.99, contradiction_flag=1)
         self.assertEqual(updated["confidence"], 0.99)
         self.assertEqual(updated["contradiction_flag"], 1)
 
         # 4. Delete
-        deleted = self.storage.delete_memory("mem-001")
+        deleted = self.storage.delete_memory("mem-001", actor_permissions=["ADMIN"])
         self.assertTrue(deleted)
         self.assertIsNone(self.storage.get_memory("mem-001"))
 
@@ -158,9 +158,9 @@ class TestPersistenceSubsystem(unittest.TestCase):
     def test_query_filtering(self):
         """Test time range, type, and actor query filtering."""
         # Memories with timestamps 10, 20, 30
-        self.storage.create_memory(id="m1", memory_type="episodic", timestamp=10, source="s1")
-        self.storage.create_memory(id="m2", memory_type="semantic", timestamp=20, source="s2")
-        self.storage.create_memory(id="m3", memory_type="episodic", timestamp=30, source="s1")
+        self.storage.create_memory(actor_permissions=["WRITE", "ADMIN"], id="m1", memory_type="episodic", timestamp=10, source="s1")
+        self.storage.create_memory(actor_permissions=["WRITE", "ADMIN"], id="m2", memory_type="semantic", timestamp=20, source="s2")
+        self.storage.create_memory(actor_permissions=["WRITE", "ADMIN"], id="m3", memory_type="episodic", timestamp=30, source="s1")
 
         # Filter memories by time range
         mems_range = self.storage.query_memories(start_time=15, end_time=35)
@@ -193,7 +193,7 @@ class TestPersistenceSubsystem(unittest.TestCase):
 
         try:
             with self.storage.transaction():
-                self.storage.create_memory(id="trans-m1", memory_type="working", timestamp=100)
+                self.storage.create_memory(actor_permissions=["WRITE", "ADMIN"], id="trans-m1", memory_type="working", timestamp=100)
                 self.storage.create_audit_event(id="trans-a1", event_type="safety", timestamp=100)
                 # Intentionally trigger exception
                 raise RuntimeError("Simulated transaction failure")
@@ -208,7 +208,7 @@ class TestPersistenceSubsystem(unittest.TestCase):
     def test_export_and_import(self):
         """Test JSON backup/export and restore/import roundtrip."""
         # Populate DB
-        self.storage.create_memory(id="exp-m1", memory_type="episodic", content={"data": 123}, timestamp=10)
+        self.storage.create_memory(actor_permissions=["WRITE", "ADMIN"], id="exp-m1", memory_type="episodic", content={"data": 123}, timestamp=10)
         self.storage.create_audit_event(id="exp-a1", event_type="decision", actor="Planner", timestamp=10)
         self.storage.create_belief_state(id="exp-b1", revision=5, timestamp=10)
         self.storage.create_action_history(lease_id="exp-l1", action_type="NAV", timestamp=10)

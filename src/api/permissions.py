@@ -27,12 +27,21 @@ SAFETY_CRITICAL_ACTIONS: Set[str] = {
     "shutdown_system",
     "emergency_stop",
     "authorize_action",
+    "approve_action",
     "revoke_lease",
+    "modify_config",
+    "clear_emergency",
+    "reset_emergency",
+    "deploy_physical",
+    "emergency_reset",
+    "founder_approval",
+    "physical_override",
 }
 
 
 def _is_safety_critical(action: Union[str, "PermissionLevel"]) -> bool:
-    """Check if an action or endpoint is safety-critical."""
+    """Check if an action or endpoint is safety-critical.
+    An action is safety-critical if it's in the explicit set OR requires SUPERVISOR level."""
     if isinstance(action, str):
         act_clean = action.strip().lower()
         if act_clean in SAFETY_CRITICAL_ACTIONS:
@@ -40,6 +49,15 @@ def _is_safety_critical(action: Union[str, "PermissionLevel"]) -> bool:
         for sc in SAFETY_CRITICAL_ACTIONS:
             if sc in act_clean:
                 return True
+        # Also check by required permission level
+        required = Permission.get_required_level(act_clean)
+        if required is None:
+            required = Permission.get_endpoint_level(act_clean)
+        if required is not None and _get_level_rank(required) >= _LEVEL_RANKS.get(PermissionLevel.SUPERVISOR, 4):
+            return True
+    elif isinstance(action, PermissionLevel):
+        if _get_level_rank(action) >= _LEVEL_RANKS.get(PermissionLevel.SUPERVISOR, 4):
+            return True
     return False
 
 
@@ -307,6 +325,9 @@ class PermissionChecker:
                 if (action and _is_safety_critical(action)) or (action_name and _is_safety_critical(action_name)):
                     continue  # Never authorize safety-critical via wildcard
                 if required_level is not None:
+                    # Deny wildcard for any action requiring SUPERVISOR or above
+                    if _get_level_rank(required_level) >= _LEVEL_RANKS.get(PermissionLevel.SUPERVISOR, 4):
+                        continue
                     return True  # Mapped non-safety-critical action
                 continue  # Unmapped action — deny
 
@@ -420,9 +441,16 @@ class PermissionChecker:
                     if not hmac.compare_digest(expected_hmac, stored_hmac):
                         logger.error(f"HMAC mismatch for agent {agent_id} — potential tampering! Skipping.")
                         continue
+                elif expected_hmac and not stored_hmac:
+                    logger.error(f"Missing HMAC for agent {agent_id} — potential tampering! Skipping.")
+                    continue
                 elif not expected_hmac:
-                    logger.warning("No audit key — cannot verify permission integrity on load")
-                perms_list = json.loads(perms_json)
+                    # FAIL CLOSED: refuse to load if HMAC key unavailable
+                    logger.error("No audit key — cannot verify permission integrity. Refusing to load (fail-closed).")
+                    conn.close()
+                    return False
+                import json as _json
+                perms_list = _json.loads(perms_json)
                 restored = []
                 for p in perms_list:
                     if p in PermissionLevel.__members__:

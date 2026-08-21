@@ -376,13 +376,25 @@ class CrossDomainArbitrator:
                 return False
         return True
 
-    def clear_emergency(self) -> bool:
-        """Clear the emergency state across all domains."""
+    def clear_emergency(self, hmac_credential: Optional[str] = None) -> bool:
+        """Clear the emergency state across all domains. Requires HMAC authorization."""
+        if not hmac_credential or not hmac_credential.strip():
+            raise PermissionError("HMAC credential required to clear emergency — deny by default")
+        # Verify HMAC credential (must match environment-configured key)
+        import hashlib
+        import hmac as hmac_mod
+        import os
+        expected_key = os.environ.get("ORION_EMERGENCY_HMAC_KEY", "")
+        if not expected_key:
+            raise PermissionError("ORION_EMERGENCY_HMAC_KEY not configured — cannot authorize emergency clearing")
+        expected_hmac = hmac_mod.new(expected_key.encode(), b"clear_emergency", hashlib.sha256).hexdigest()
+        if not hmac_mod.compare_digest(hmac_credential, expected_hmac):
+            raise PermissionError("Invalid HMAC credential — emergency clearing denied")
         self._emergency_active = False
         self._emergency_source = None
         for dom in self._domains.values():
             dom.state = DomainState.ACTIVE
-        logger.info("Emergency cleared — all domains back to ACTIVE")
+        logger.info("Emergency cleared — all domains back to ACTIVE (authorized)")
         return True
 
     def is_emergency_active(self) -> bool:

@@ -193,8 +193,19 @@ class HomeSimulation:
         self.increment_state_revision()
         return {"status": "EMERGENCY", "actions": actions}
 
-    def clear_emergency(self) -> None:
-        """Clear emergency state and reset all systems to normal."""
+    def clear_emergency(self, hmac_credential: Optional[str] = None) -> None:
+        """Clear emergency state and reset all systems to normal. Requires HMAC authorization."""
+        if not hmac_credential or not hmac_credential.strip():
+            raise PermissionError("HMAC credential required to clear emergency — deny by default")
+        import hashlib
+        import hmac as hmac_mod
+        import os
+        expected_key = os.environ.get("ORION_EMERGENCY_HMAC_KEY", "")
+        if not expected_key:
+            raise PermissionError("ORION_EMERGENCY_HMAC_KEY not configured — cannot authorize emergency clearing")
+        expected_hmac = hmac_mod.new(expected_key.encode(), b"clear_emergency", hashlib.sha256).hexdigest()
+        if not hmac_mod.compare_digest(hmac_credential, expected_hmac):
+            raise PermissionError("Invalid HMAC credential — emergency clearing denied")
         self.system_status = "NOMINAL"
         self.evacuation.deactivate()
 

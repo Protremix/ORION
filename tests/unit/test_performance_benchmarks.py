@@ -14,6 +14,8 @@ Results are printed as a summary report.
 License: Apache 2.0
 """
 
+import hashlib
+import hmac
 import json
 import math
 import os
@@ -103,7 +105,7 @@ class TestPerformanceBenchmarks(unittest.TestCase):
         ]
 
         def run_arbitrate():
-            arb.clear_emergency()
+            arb.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), b"clear_emergency", hashlib.sha256).hexdigest())
             arb.arbitrate(events)
 
         self._benchmark("cross_domain_arbitration", run_arbitrate, 1000)

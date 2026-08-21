@@ -17,15 +17,16 @@ RUN groupadd -r orion -g 1000 && \
 # Set work directory
 WORKDIR /app
 
-# Copy project config first for better caching
+# Copy project config and source first for editable install
 COPY --chown=orion:orion pyproject.toml ./
-
-# Install dependencies
-RUN pip install --no-cache-dir -e ".[dev]"
-
-# Copy source code with proper ownership
 COPY --chown=orion:orion src/ ./src/
 COPY --chown=orion:orion simulation/ ./simulation/
+COPY --chown=orion:orion README.md ./
+
+# Install dependencies (editable install requires source to be present)
+RUN pip install --no-cache-dir -e ".[dev]"
+
+# Copy remaining files with proper ownership
 COPY --chown=orion:orion tests/ ./tests/
 COPY --chown=orion:orion docs/ ./docs/
 COPY --chown=orion:orion conftest.py ./

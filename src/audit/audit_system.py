@@ -292,13 +292,15 @@ class InMemoryStorageBackend(BaseStorageBackend):
         self._events.append(event)
 
     def read_all(self) -> List[AuditEvent]:
-        return list(self._events)
+        import copy
+        return [copy.deepcopy(e) for e in self._events]
 
     def count(self) -> int:
         return len(self._events)
 
     def clear(self) -> None:
-        self._events.clear()
+        """Audit events are immutable — clearing is rejected."""
+        raise PermissionError("Audit events are immutable — clear not permitted")
 
 
 class FileStorageBackend(BaseStorageBackend):
@@ -393,8 +395,9 @@ class AuditLog:
         return len(self._cache)
 
     def get_events(self) -> List[AuditEvent]:
-        """Returns a copy of all logged events in cache."""
-        return list(self._cache)
+        """Returns deep copies of all logged events in cache (immutable records)."""
+        import copy
+        return [copy.deepcopy(e) for e in self._cache]
 
     def create_event(
         self,

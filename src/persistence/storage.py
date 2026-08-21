@@ -266,9 +266,12 @@ class StorageManager:
     def create_memory(
         self,
         record: Optional[Union[MemoryRecord, Dict[str, Any]]] = None,
+        actor_permissions: Optional[list] = None,
         **kwargs
     ) -> Dict[str, Any]:
-        """Creates a memory record in the memories table."""
+        """Creates a memory record in the memories table. Requires WRITE permission."""
+        if not actor_permissions or "WRITE" not in [str(p).upper() for p in actor_permissions]:
+            raise PermissionError("Memory write requires WRITE permission")
         if record is not None:
             if hasattr(record, "to_dict"):
                 data = record.to_dict()
@@ -326,8 +329,10 @@ class StorageManager:
 
     read_memory = get_memory
 
-    def update_memory(self, memory_id: str, **updates) -> Optional[Dict[str, Any]]:
-        """Updates fields of an existing memory record."""
+    def update_memory(self, memory_id: str, actor_permissions: Optional[list] = None, **updates) -> Optional[Dict[str, Any]]:
+        """Updates fields of an existing memory record. Requires WRITE permission."""
+        if not actor_permissions or "WRITE" not in [str(p).upper() for p in actor_permissions]:
+            raise PermissionError("Memory update requires WRITE permission")
         existing = self.get_memory(memory_id)
         if not existing:
             return None
@@ -355,8 +360,10 @@ class StorageManager:
         self._commit_if_not_in_transaction()
         return self.get_memory(memory_id)
 
-    def delete_memory(self, memory_id: str) -> bool:
-        """Deletes a memory record by ID."""
+    def delete_memory(self, memory_id: str, actor_permissions: Optional[list] = None) -> bool:
+        """Deletes a memory record by ID. Requires ADMIN permission."""
+        if not actor_permissions or "ADMIN" not in [str(p).upper() for p in actor_permissions]:
+            raise PermissionError("Memory deletion requires ADMIN permission")
         cursor = self.conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         self._commit_if_not_in_transaction()
         return cursor.rowcount > 0
@@ -404,7 +411,6 @@ class StorageManager:
         severity = str(data.get("severity") or data.get("risk_tier") or "info")
         # Ignore caller-supplied signature — signatures must be computed internally
         data.pop("signature", None)
-        signature = ""  # TODO: compute via env-based signing key
 
         # ALWAYS compute previous_hash internally — ignore any caller-supplied value
         data.pop("previous_hash", None)
@@ -426,6 +432,16 @@ class StorageManager:
             previous_hash=prev_hash,
             severity=severity,
         )
+
+        # Compute HMAC-SHA256 signature using environment-configured key (after hash is computed)
+        import hashlib as _hl
+        import hmac as _hmac_mod
+        import os as _os
+        signing_key = _os.environ.get("ORION_AUDIT_SIGNING_KEY", "")
+        if not signing_key:
+            raise PermissionError("ORION_AUDIT_SIGNING_KEY not configured — cannot sign audit event (fail-closed)")
+        sig_payload = f"{event_id}:{seq_num}:{event_type}:{actor}:{ts}:{prev_hash}:{event_hash}"
+        signature = _hmac_mod.new(signing_key.encode(), sig_payload.encode(), _hl.sha256).hexdigest()
 
         sql = """
             INSERT INTO audit_events (
@@ -465,43 +481,14 @@ class StorageManager:
     read_audit_event = get_audit_event
 
     def update_audit_event(self, event_id: str, **updates) -> Optional[Dict[str, Any]]:
-        """Updates specified fields of an audit event."""
-        existing = self.get_audit_event(event_id)
-        if not existing:
-            return None
+        """Audit events are immutable — updates are rejected."""
+        raise PermissionError("Audit events are immutable — update not permitted")
 
-        # Audit events are append-only — do NOT allow updating hash, sequence,
-        # previous_hash, or signature fields
-        allowed_cols = {
-            "event_type", "event_data", "actor",
-            "timestamp", "severity"
-        }
-        set_clauses = []
-        vals = []
-        for k, v in updates.items():
-            if k in allowed_cols:
-                set_clauses.append(f"{k} = ?")
-                if k == "event_data":
-                    vals.append(_serialize_field(v))
-                else:
-                    vals.append(v)
-
-        if not set_clauses:
-            return existing
-
-        vals.append(event_id)
-        sql = f"UPDATE audit_events SET {', '.join(set_clauses)} WHERE id = ?"
-        self.conn.execute(sql, vals)
-        self._commit_if_not_in_transaction()
-        return self.get_audit_event(event_id)
 
     def delete_audit_event(self, event_id: str, admin_override: bool = False) -> bool:
-        """Deletes an audit event by ID. Restricted to admin override only."""
-        if not admin_override:
-            raise PermissionError("Audit events are append-only and cannot be deleted without admin override")
-        cursor = self.conn.execute("DELETE FROM audit_events WHERE id = ?", (event_id,))
-        self._commit_if_not_in_transaction()
-        return cursor.rowcount > 0
+        """Audit events are immutable — deletion is rejected."""
+        raise PermissionError("Audit events are immutable — deletion not permitted")
+
 
     def verify_audit_hash_chain(self) -> bool:
         """Verifies hash chain integrity across all stored audit events."""
@@ -515,6 +502,15 @@ class StorageManager:
         events = [_row_to_dict(r, parse_json=False) for r in rows]
 
         for i, event in enumerate(events):
+            # 0. Verify contiguous sequence numbers
+            expected_seq = i + 1  # sequences start at 1
+            actual_seq = int(event.get("sequence_number", -1))
+            if actual_seq != expected_seq:
+                logger.error(
+                    f"Audit sequence number mismatch at index {i}: expected {expected_seq}, got {actual_seq}"
+                )
+                return False
+
             # 1. Verify previous hash chain connection
             if i == 0:
                 # Validate genesis event — first event must have GENESIS_HASH as previous_hash
@@ -532,6 +528,24 @@ class StorageManager:
                         f"expected previous_hash={prev_event_hash}, got {event.get('previous_hash')}"
                     )
                     return False
+
+            # 1b. Verify HMAC signature
+            stored_sig = event.get("signature", "")
+            if not stored_sig:
+                logger.error(f"Audit event {event.get('id')} missing signature")
+                return False
+            import hashlib as _hl
+            import hmac as _hmac_mod
+            import os as _os
+            signing_key = _os.environ.get("ORION_AUDIT_SIGNING_KEY", "")
+            if not signing_key:
+                logger.error("ORION_AUDIT_SIGNING_KEY not configured — cannot verify signatures")
+                return False
+            sig_payload = f"{event['id']}:{actual_seq}:{event['event_type']}:{event.get('actor', '')}:{int(event.get('timestamp', 0))}:{event.get('previous_hash', '')}:{event.get('hash', '')}"
+            expected_sig = _hmac_mod.new(signing_key.encode(), sig_payload.encode(), _hl.sha256).hexdigest()
+            if not _hmac_mod.compare_digest(stored_sig, expected_sig):
+                logger.error(f"Audit event {event.get('id')} signature verification failed")
+                return False
 
             # 2. Verify stored hash validity
             stored_hash = event.get("hash", "")
@@ -962,7 +976,7 @@ class StorageManager:
                     self.conn.execute(f"DELETE FROM {table}")
 
             for mem in data.get("memories", []):
-                self.create_memory(mem)
+                self.create_memory(mem, actor_permissions=["WRITE", "ADMIN"])
 
             for evt in data.get("audit_events", []):
                 self.create_audit_event(evt)

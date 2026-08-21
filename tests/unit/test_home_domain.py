@@ -4,6 +4,8 @@ Tests the smart home domain simulation including HVAC, lighting, security,
 smart locks, smoke detectors, energy monitoring, and evacuation mode.
 """
 
+import hashlib
+import hmac
 import os
 import sys
 import unittest
@@ -192,7 +194,7 @@ class TestHomeDomain(unittest.TestCase):
         self.assertTrue(self.sim.evacuation.is_active)
 
         # Clear emergency
-        self.sim.clear_emergency()
+        self.sim.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), b"clear_emergency", hashlib.sha256).hexdigest())
         self.assertEqual(self.sim.system_status, "NOMINAL")
         self.assertFalse(self.sim.evacuation.is_active)
 
@@ -214,7 +216,7 @@ class TestHomeDomain(unittest.TestCase):
         # Fire
         result = self.sim.run_scenario("fire")
         self.assertEqual(result["status"], "EMERGENCY")
-        self.sim.clear_emergency()
+        self.sim.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), b"clear_emergency", hashlib.sha256).hexdigest())
 
         # Intrusion
         result = self.sim.run_scenario("intrusion")

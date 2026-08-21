@@ -497,15 +497,36 @@ class VehicleSimulation:
                 effects = self.ego_vehicle.to_dict()
 
             elif action_type == "reset_emergency":
-                # Require authorization to reset emergency state
-                authorized = params.get("authorized", False)
-                if not authorized:
+                # Require HMAC authorization to reset emergency state
+                hmac_credential = params.get("hmac_credential", None)
+                if not hmac_credential:
                     return ActionExecutionResult(
                         lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
                         execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
                         actual_effects=self.ego_vehicle.to_dict(),
-                        deviation={"error": "Emergency reset requires authorization"},
-                        deviation_reason="Unauthorized emergency reset",
+                        deviation={"error": "Emergency reset requires HMAC credential"},
+                        deviation_reason="Unauthorized emergency reset — no credential",
+                    )
+                import hashlib
+                import hmac as hmac_mod
+                import os
+                expected_key = os.environ.get("ORION_EMERGENCY_HMAC_KEY", "")
+                if not expected_key:
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects=self.ego_vehicle.to_dict(),
+                        deviation={"error": "ORION_EMERGENCY_HMAC_KEY not configured"},
+                        deviation_reason="Cannot verify credential — key not configured",
+                    )
+                expected_hmac = hmac_mod.new(expected_key.encode(), b"reset_emergency", hashlib.sha256).hexdigest()
+                if not hmac_mod.compare_digest(str(hmac_credential), expected_hmac):
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects=self.ego_vehicle.to_dict(),
+                        deviation={"error": "Invalid HMAC credential for emergency reset"},
+                        deviation_reason="Unauthorized emergency reset — invalid credential",
                     )
                 self.aeb_controller.reset()
                 self.ego_vehicle.set_state("STOPPED")

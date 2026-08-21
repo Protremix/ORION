@@ -348,17 +348,24 @@ class RangeLimitStage:
     def verify(self, command: ActuatorCommand) -> StageResult:
         for param_name, val in command.parameters.items():
             limit = _get_parameter_limit(command.domain, param_name, self.limits)
-            if limit is not None:
-                if val < limit.min_val or val > limit.max_val:
-                    return StageResult(
-                        stage=VerificationStage.RANGE_LIMIT,
-                        passed=False,
-                        reason=(
-                            f"Parameter '{param_name}' value {val} out of bounds "
-                            f"[{limit.min_val}, {limit.max_val}] for domain '{command.domain}'"
-                        ),
-                        details={"param": param_name, "val": val, "min": limit.min_val, "max": limit.max_val}
-                    )
+            if limit is None:
+                # Unknown parameter — reject (deny by default)
+                return StageResult(
+                    stage=VerificationStage.RANGE_LIMIT,
+                    passed=False,
+                    reason=f"Unknown parameter '{param_name}' for domain '{command.domain}' — not in allowlist",
+                    details={"param": param_name, "domain": command.domain}
+                )
+            if val < limit.min_val or val > limit.max_val:
+                return StageResult(
+                    stage=VerificationStage.RANGE_LIMIT,
+                    passed=False,
+                    reason=(
+                        f"Parameter '{param_name}' value {val} out of bounds "
+                        f"[{limit.min_val}, {limit.max_val}] for domain '{command.domain}'"
+                    ),
+                    details={"param": param_name, "val": val, "min": limit.min_val, "max": limit.max_val}
+                )
 
         return StageResult(
             stage=VerificationStage.RANGE_LIMIT,
@@ -468,12 +475,10 @@ class AuditLogStage:
         serialized = json.dumps(entry_data, sort_keys=True)
         # HMAC-SHA256 for cryptographic integrity
         audit_key = _os.environ.get("ORION_AUDIT_KEY") or _os.environ.get("ORION_POLICY_KEY")
-        if audit_key:
-            import hmac as _hmac
-            entry_hash = _hmac.new(audit_key.encode(), serialized.encode("utf-8"), hashlib.sha256).hexdigest()
-        else:
-            # No key — use plain SHA-256 (still tamper-evident within process)
-            entry_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+        if not audit_key:
+            raise PermissionError("ORION_AUDIT_KEY not configured — cannot sign audit entry (fail-closed)")
+        import hmac as _hmac
+        entry_hash = _hmac.new(audit_key.encode(), serialized.encode("utf-8"), hashlib.sha256).hexdigest()
 
         # Create immutable entry
         entry = AuditLogEntry(
@@ -502,8 +507,11 @@ class AuditLogStage:
                     self.external_storage.write(entry)
             except Exception as e:
                 logger.error(f"Failed to record audit entry to external storage: {e}")
-                # Fail-closed: if external storage fails, the command result still records
-                # but the error is logged at ERROR level, not warning
+                # FAIL-CLOSED: if external audit storage fails, the command must NOT pass
+                # Remove the entry from local log to maintain consistency
+                self._entries.pop()
+                self._last_hash = prev_hash
+                raise RuntimeError(f"Audit persistence failure — command rejected (fail-closed): {e}")
 
         return entry
 
@@ -614,8 +622,10 @@ class ActuatorVerificationPipeline:
             actuator_id = raw_dict.get("actuator_id", "default_actuator")
             cmd_domain = raw_dict.get("domain", domain)
             params = {k: float(v) for k, v in raw_dict.items() if isinstance(v, (int, float)) and not k.endswith(("_min", "_max", "_limit"))}
-            # Validate all parameters are finite (reject NaN/Inf)
-            params = {k: v for k, v in params.items() if math.isfinite(v)}
+            # Reject NaN/Infinity — do NOT silently remove them
+            for k, v in params.items():
+                if not math.isfinite(v):
+                    raise ValueError(f"Parameter '{k}' has non-finite value {v} — rejected")
             cmd = ActuatorCommand(
                 actuator_id=actuator_id,
                 domain=cmd_domain,
@@ -633,8 +643,10 @@ class ActuatorVerificationPipeline:
                 raw_dict = command
                 cmd_domain = raw_dict.get("domain", domain)
                 params = {k: float(v) for k, v in raw_dict.items() if isinstance(v, (int, float)) and not k.endswith(("_min", "_max", "_limit"))}
-                # Validate all parameters are finite (reject NaN/Inf)
-                params = {k: v for k, v in params.items() if math.isfinite(v)}
+                # Reject NaN/Infinity — do NOT silently remove them
+                for k, v in params.items():
+                    if not math.isfinite(v):
+                        raise ValueError(f"Parameter '{k}' has non-finite value {v} — rejected")
                 cmd = ActuatorCommand(
                     actuator_id=actuator_id,
                     domain=cmd_domain,
@@ -744,9 +756,16 @@ class ActuatorVerificationPipeline:
             timestamp=cmd.timestamp,
         )
 
-        # Stage 5: AuditLog (Always recorded)
-        entry = self.audit_log_stage.record(cmd, res)
-        res.audit_hash = entry.hash
+        # Stage 5: AuditLog (Always recorded — fail-closed on storage failure)
+        try:
+            entry = self.audit_log_stage.record(cmd, res)
+            res.audit_hash = entry.hash
+        except Exception as e:
+            logger.error(f"Audit log failure — command rejected (fail-closed): {e}")
+            res.passed = False
+            res.rejected_stage = VerificationStage.AUDIT_LOG
+            res.reason = f"Audit persistence failure (fail-closed): {e}"
+            res.audit_hash = None
 
         return res
 

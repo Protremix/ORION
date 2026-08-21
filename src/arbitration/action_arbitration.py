@@ -230,6 +230,18 @@ class ActionArbitration:
                 if cat_upper in ("FINANCIAL", "LEGAL", "STRATEGIC"):
                     if not human_approval_signature:
                         return None, f"DECISION_REQUIRED: {cat_upper} action requires Founder approval (human_approval_signature missing)"
+                    # Cryptographically verify the Founder approval signature
+                    import hashlib as _hl
+                    import hmac as _hmac_mod
+                    import os as _os
+                    founder_key = _os.environ.get("ORION_FOUNDER_APPROVAL_KEY", "")
+                    if not founder_key:
+                        return None, "DECISION_REQUIRED: ORION_FOUNDER_APPROVAL_KEY not configured — cannot verify Founder approval"
+                    # Signature must be HMAC-SHA256(founder_key, action_id:category:target_entity)
+                    sig_payload = f"{proposal.action_id}:{cat_upper}:{proposal.target_entity}"
+                    expected_sig = _hmac_mod.new(founder_key.encode(), sig_payload.encode(), _hl.sha256).hexdigest()
+                    if not _hmac_mod.compare_digest(human_approval_signature, expected_sig):
+                        return None, "DECISION_REQUIRED: Invalid Founder approval signature — cryptographic verification failed"
 
             # 3. Safety Assurance Approval Requirement
             if proposal.risk_tier == RiskTier.TIER_2 and self._safety_policy.require_sa_approval_for_tier2:
@@ -243,6 +255,17 @@ class ActionArbitration:
             if proposal.requested_channel == PermittedChannel.HUMAN_APPROVAL:
                 if not human_approval_signature:
                     return None, "Channel HUMAN_APPROVAL requires human operator signature"
+                # Verify the human approval signature cryptographically
+                import hashlib as _hl2
+                import hmac as _hmac2
+                import os as _os2
+                founder_key = _os2.environ.get("ORION_FOUNDER_APPROVAL_KEY", "")
+                if not founder_key:
+                    return None, "ORION_FOUNDER_APPROVAL_KEY not configured — cannot verify human approval"
+                sig_payload = f"{proposal.action_id}:HUMAN_APPROVAL:{proposal.target_entity}"
+                expected_sig = _hmac2.new(founder_key.encode(), sig_payload.encode(), _hl2.sha256).hexdigest()
+                if not _hmac2.compare_digest(human_approval_signature, expected_sig):
+                    return None, "Invalid human approval signature — cryptographic verification failed"
 
             # 5. Build Time-Bounded Lease
             now_ns = time.time_ns()

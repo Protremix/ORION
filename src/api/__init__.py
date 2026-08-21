@@ -71,8 +71,12 @@ class ORIONResponse:
 # ============================================================================
 
 def validate_input(data: Any) -> bool:
-    """Validate input data is not None."""
-    return data is not None
+    """Validate input data — non-None and non-empty."""
+    if data is None:
+        return False
+    if isinstance(data, str) and not data.strip():
+        return False
+    return True
 
 
 def sanitize_string(val: str) -> str:
@@ -83,8 +87,40 @@ def sanitize_string(val: str) -> str:
 
 
 def validate_api_payload(payload: Dict[str, Any]) -> bool:
-    """Validate API payload structure."""
-    return isinstance(payload, dict)
+    """Validate API payload structure — must be a non-empty dict."""
+    if not isinstance(payload, dict):
+        return False
+    if len(payload) == 0:
+        return False
+    return True
+
+
+def validate_string_param(value: Any, max_length: int = 10000) -> bool:
+    """Validate a string parameter using InputValidator."""
+    from src.api.validation import InputValidator
+    result = InputValidator.validate_string(value, max_length=max_length)
+    return result.valid
+
+
+def validate_domain_param(domain: Any) -> bool:
+    """Validate a domain parameter using InputValidator."""
+    from src.api.validation import InputValidator
+    result = InputValidator.validate_domain(domain)
+    return result.valid
+
+
+def validate_goal_param(goal: Any) -> bool:
+    """Validate a goal parameter using InputValidator."""
+    from src.api.validation import InputValidator
+    result = InputValidator.validate_goal(goal)
+    return result.valid
+
+
+def validate_action_param(action: Any) -> bool:
+    """Validate an action parameter using InputValidator."""
+    from src.api.validation import InputValidator
+    result = InputValidator.validate_action(action)
+    return result.valid
 
 
 # ============================================================================
@@ -151,8 +187,8 @@ class ORIONAPI:
         auth = self._check_auth(token, agent_id=agent_id, action="observe")
         if not auth.ok:
             return auth
-        if not validate_input(source) or not validate_api_payload(query):
-            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid input parameters")
+        if not validate_string_param(source) or not validate_api_payload(query):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid input parameters — source must be non-empty string, query must be non-empty dict")
         # TODO: Connect to perception plane
         return ORIONResponse(status=ORIONStatus.OK, data={"source": source, "query": query})
 
@@ -188,8 +224,10 @@ class ORIONAPI:
         auth = self._check_auth(token, agent_id=agent_id, action="recall")
         if not auth.ok:
             return auth
-        if not validate_input(query):
-            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid query parameter")
+        if not validate_string_param(query):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid query — must be non-empty string")
+        if not isinstance(limit, int) or limit <= 0:
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid limit — must be positive integer")
         if self._memory:
             try:
                 results = self._memory.search(query, memory_type=memory_type, limit=limit)
@@ -210,11 +248,19 @@ class ORIONAPI:
         auth = self._check_auth(token, agent_id=agent_id, action="remember")
         if not auth.ok:
             return auth
-        if not validate_input(content):
-            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid content parameter")
+        if not validate_input(content) or (isinstance(content, str) and not content.strip()):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid content — must be non-empty")
         if self._memory:
             try:
-                entry = self._memory.store(content, memory_type=memory_type, metadata=metadata)
+                # Forward verified authorization context from the auth check
+                actor_perms = getattr(auth, 'permissions', None) or ["READ"]
+                if hasattr(self._memory, 'write_memory'):
+                    entry = self._memory.write_memory(
+                        content=content, memory_type=memory_type, metadata=metadata,
+                        actor_permissions=actor_perms
+                    )
+                else:
+                    entry = self._memory.store(content, memory_type=memory_type, metadata=metadata)
                 return ORIONResponse(status=ORIONStatus.OK, data=entry)
             except Exception as e:
                 return ORIONResponse(status=ORIONStatus.ERROR, error=str(e))
@@ -232,8 +278,8 @@ class ORIONAPI:
         auth = self._check_auth(token, agent_id=agent_id, action="plan")
         if not auth.ok:
             return auth
-        if not validate_input(goal) or not isinstance(goal, str):
-            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid goal parameter")
+        if not validate_goal_param(goal):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid goal — must be non-empty string, max 10000 chars")
         if constraints is not None and not validate_api_payload(constraints):
             return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid constraints parameter")
         # TODO: Connect to planning plane
@@ -255,7 +301,9 @@ class ORIONAPI:
         if not auth.ok:
             return auth
         if not validate_api_payload(action):
-            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid action parameter")
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid action — must be non-empty dict")
+        if not validate_domain_param(domain):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid domain — must be known domain string")
         # TODO: Connect to simulation plane
         return ORIONResponse(
             status=ORIONStatus.OK,
@@ -277,7 +325,9 @@ class ORIONAPI:
             return auth
 
         if not validate_api_payload(action):
-            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid action payload")
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid action payload — must be non-empty dict")
+        if not validate_domain_param(domain):
+            return ORIONResponse(status=ORIONStatus.ERROR, error="Invalid domain — must be known domain string")
 
         # Action category enforcement — validate and normalize action_category BEFORE simulation
         raw_cat = action.get("action_category", "DIGITAL")

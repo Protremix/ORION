@@ -344,9 +344,12 @@ class PostgresStorageManager:
     def create_memory(
         self,
         record: Optional[Union[MemoryRecord, Dict[str, Any]]] = None,
+        actor_permissions: Optional[list] = None,
         **kwargs
     ) -> Dict[str, Any]:
-        """Creates a memory record in the memories table."""
+        """Creates a memory record in the memories table. Requires WRITE permission."""
+        if not actor_permissions or "WRITE" not in [str(p).upper() for p in actor_permissions]:
+            raise PermissionError("Memory write requires WRITE permission")
         if record is not None:
             if hasattr(record, "to_dict"):
                 data = record.to_dict()
@@ -400,8 +403,10 @@ class PostgresStorageManager:
 
     read_memory = get_memory
 
-    def update_memory(self, memory_id: str, **updates) -> Optional[Dict[str, Any]]:
-        """Updates fields of an existing memory record."""
+    def update_memory(self, memory_id: str, actor_permissions: Optional[list] = None, **updates) -> Optional[Dict[str, Any]]:
+        """Updates fields of an existing memory record. Requires WRITE permission."""
+        if not actor_permissions or "WRITE" not in [str(p).upper() for p in actor_permissions]:
+            raise PermissionError("Memory update requires WRITE permission")
         existing = self.get_memory(memory_id)
         if not existing:
             return None
@@ -430,7 +435,7 @@ class PostgresStorageManager:
         self._execute_sql(sql, *vals, isolation="read_committed")
         return self.get_memory(memory_id)
 
-    def delete_memory(self, memory_id: str) -> bool:
+    def delete_memory(self, memory_id: str, actor_permissions: Optional[list] = None) -> bool:
         """Deletes a memory record by ID."""
         sql = "DELETE FROM memories WHERE id = $1"
         res = self._execute_sql(sql, memory_id, isolation="read_committed")
@@ -551,46 +556,12 @@ class PostgresStorageManager:
     read_audit_event = get_audit_event
 
     def update_audit_event(self, event_id: str, **updates) -> Optional[Dict[str, Any]]:
-        """Updates specified fields of an audit event."""
-        existing = self.get_audit_event(event_id)
-        if not existing:
-            return None
-
-        allowed_cols = {
-            "sequence_number", "event_type", "event_data", "actor",
-            "timestamp", "previous_hash", "hash", "signature", "severity"
-        }
-        set_clauses = []
-        vals = []
-        idx = 1
-        for k, v in updates.items():
-            if k in allowed_cols:
-                set_clauses.append(f"{k} = ${idx}")
-                idx += 1
-                if k == "event_data":
-                    vals.append(_serialize_field(v))
-                else:
-                    vals.append(v)
-
-        if not set_clauses:
-            return existing
-
-        vals.append(event_id)
-        sql = f"UPDATE audit_events SET {', '.join(set_clauses)} WHERE id = ${idx}"
-        self._execute_sql(sql, *vals, isolation="serializable")
-        return self.get_audit_event(event_id)
+        """Audit events are immutable — updates are rejected."""
+        raise PermissionError("Audit events are immutable — update not permitted")
 
     def delete_audit_event(self, event_id: str) -> bool:
-        """Deletes an audit event by ID."""
-        sql = "DELETE FROM audit_events WHERE id = $1"
-        res = self._execute_sql(sql, event_id, isolation="serializable")
-        if isinstance(res, str) and res.startswith("DELETE "):
-            try:
-                count = int(res.split(" ")[-1])
-                return count > 0
-            except (IndexError, ValueError):
-                pass
-        return False
+        """Audit events are immutable — deletion is rejected."""
+        raise PermissionError("Audit events are immutable — deletion not permitted")
 
     def verify_audit_hash_chain(self) -> bool:
         """Verifies hash chain integrity across all stored audit events."""

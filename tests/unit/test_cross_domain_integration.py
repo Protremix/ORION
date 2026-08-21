@@ -11,6 +11,8 @@ Verifies:
 5. Full multi-domain simulation cycle
 """
 
+import hashlib
+import hmac
 import os
 import sys
 import unittest
@@ -160,7 +162,7 @@ class TestCrossDomainIntegration(unittest.TestCase):
         self.assertTrue(self.arb.is_emergency_active())
 
         # Clear
-        self.arb.clear_emergency()
+        self.arb.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), b"clear_emergency", hashlib.sha256).hexdigest())
         self.assertFalse(self.arb.is_emergency_active())
         for dom in self.arb.list_domains():
             self.assertEqual(dom.state, DomainState.ACTIVE)
@@ -293,8 +295,8 @@ class TestCrossDomainIntegration(unittest.TestCase):
         self.assertTrue(self.arb.is_emergency_active())
 
         # Clear
-        self.home.clear_emergency()
-        self.arb.clear_emergency()
+        self.home.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), b"clear_emergency", hashlib.sha256).hexdigest())
+        self.arb.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), b"clear_emergency", hashlib.sha256).hexdigest())
         self.assertEqual(self.home.system_status, "NOMINAL")
         self.assertFalse(self.arb.is_emergency_active())
 

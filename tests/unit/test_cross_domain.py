@@ -4,6 +4,8 @@ Tests the CrossDomainArbitrator for Industrial + Vehicle coexistence,
 priority-based conflict resolution, emergency cascade, and log integrity.
 """
 
+import hashlib
+import hmac
 import os
 import sys
 import unittest
@@ -163,7 +165,7 @@ class TestEmergencyCascade(unittest.TestCase):
         ]
         self.arb.arbitrate(events)
         self.assertTrue(self.arb.is_emergency_active())
-        self.arb.clear_emergency()
+        self.arb.clear_emergency(hmac_credential=hmac.new(os.environ.get("ORION_EMERGENCY_HMAC_KEY", "test-emergency-hmac-key").encode(), b"clear_emergency", hashlib.sha256).hexdigest())
         self.assertFalse(self.arb.is_emergency_active())
 
     def test_all_domains_enter_emergency_state(self):

@@ -52,6 +52,7 @@ class TestStorageFactory(unittest.TestCase):
             content={"event": "test"},
             summary="Test memory",
             confidence=0.9,
+            actor_permissions=["WRITE", "ADMIN"],
         )
         self.assertIsNotNone(mem)
         retrieved = manager.get_memory(mem["id"])
@@ -157,6 +158,7 @@ class TestSQLiteFallback(unittest.TestCase):
                     content={"event": "in_transaction"},
                     summary="Should be rolled back",
                     confidence=0.9,
+                    actor_permissions=["WRITE", "ADMIN"],
                 )
                 raise ValueError("Intentional rollback")
         except ValueError:
@@ -195,6 +197,7 @@ class TestCrossBackendCompatibility(unittest.TestCase):
             content={"fact": "sky is blue"},
             summary="Sky color fact",
             confidence=0.95,
+            actor_permissions=["WRITE", "ADMIN"],
         )
         self.assertIsNotNone(mem)
         mem_id = mem["id"]
@@ -204,11 +207,11 @@ class TestCrossBackendCompatibility(unittest.TestCase):
         self.assertEqual(retrieved["content"], {"fact": "sky is blue"})
         self.assertEqual(retrieved["memory_type"], "semantic")
 
-        updated = manager.update_memory(mem_id, confidence=0.85)
+        updated = manager.update_memory(mem_id, confidence=0.85, actor_permissions=["WRITE", "ADMIN"])
         self.assertIsNotNone(updated)
         self.assertEqual(updated["confidence"], 0.85)
 
-        deleted = manager.delete_memory(mem_id)
+        deleted = manager.delete_memory(mem_id, actor_permissions=["ADMIN"])
         self.assertTrue(deleted)
         self.assertIsNone(manager.get_memory(mem_id))
 
