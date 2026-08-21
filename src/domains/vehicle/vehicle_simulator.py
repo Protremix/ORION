@@ -101,7 +101,9 @@ class VehicleSimulation:
         self.time_elapsed: float = 0.0
         self.state_revision: int = 1
         self.safety_events: List[Dict[str, Any]] = []
-        self._safety_gate_active: bool = False  # Set True by propose_action, checked by direct methods
+        self._safety_gate_active: bool = False
+        # Change #8: Track used emergency reset credentials to prevent replay
+        self._used_reset_credentials: set = set()  # Set True by propose_action, checked by direct methods
 
     def increment_state_revision(self) -> int:
         self.state_revision += 1
@@ -515,7 +517,10 @@ class VehicleSimulation:
                 effects = self.ego_vehicle.to_dict()
 
             elif action_type == "reset_emergency":
-                # Require HMAC authorization to reset emergency state
+                # Change #8: Replay-protected HMAC authorization for emergency reset
+                # Credential format: "timestamp:hmac_signature"
+                # HMAC is computed over "reset_emergency:timestamp" to bind the credential
+                # to a specific time, preventing replay of the same credential.
                 hmac_credential = params.get("hmac_credential", None)
                 if not hmac_credential:
                     return ActionExecutionResult(
@@ -528,6 +533,7 @@ class VehicleSimulation:
                 import hashlib
                 import hmac as hmac_mod
                 import os
+                import time as _time
                 expected_key = os.environ.get("ORION_EMERGENCY_HMAC_KEY", "")
                 if not expected_key:
                     return ActionExecutionResult(
@@ -537,15 +543,65 @@ class VehicleSimulation:
                         deviation={"error": "ORION_EMERGENCY_HMAC_KEY not configured"},
                         deviation_reason="Cannot verify credential — key not configured",
                     )
-                expected_hmac = hmac_mod.new(expected_key.encode(), b"reset_emergency", hashlib.sha256).hexdigest()
-                if not hmac_mod.compare_digest(str(hmac_credential), expected_hmac):
+                # Parse credential: "timestamp:signature"
+                cred_str = str(hmac_credential)
+                cred_parts = cred_str.split(":", 1)
+                if len(cred_parts) != 2:
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects=self.ego_vehicle.to_dict(),
+                        deviation={"error": "Invalid credential format — expected 'timestamp:signature'"},
+                        deviation_reason="Unauthorized emergency reset — malformed credential",
+                    )
+                cred_timestamp_str, cred_sig = cred_parts
+                # Verify timestamp is valid and not stale (max 60 seconds old)
+                try:
+                    cred_timestamp = float(cred_timestamp_str)
+                except (ValueError, TypeError):
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects=self.ego_vehicle.to_dict(),
+                        deviation={"error": "Invalid timestamp in credential"},
+                        deviation_reason="Unauthorized emergency reset — invalid timestamp",
+                    )
+                now = _time.time()
+                if abs(now - cred_timestamp) > 60.0:
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects=self.ego_vehicle.to_dict(),
+                        deviation={"error": "Credential expired — timestamp outside 60s window"},
+                        deviation_reason="Unauthorized emergency reset — stale credential (replay protection)",
+                    )
+                # Check for replay — credential must not have been used before
+                if cred_str in self._used_reset_credentials:
+                    return ActionExecutionResult(
+                        lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
+                        execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
+                        actual_effects=self.ego_vehicle.to_dict(),
+                        deviation={"error": "Credential already used — replay detected"},
+                        deviation_reason="Unauthorized emergency reset — credential replay blocked",
+                    )
+                # Verify HMAC signature
+                expected_message = f"reset_emergency:{cred_timestamp_str}"
+                expected_hmac = hmac_mod.new(
+                    expected_key.encode(), expected_message.encode(), hashlib.sha256
+                ).hexdigest()
+                if not hmac_mod.compare_digest(cred_sig, expected_hmac):
                     return ActionExecutionResult(
                         lease_id=lease_id, outcome=ExecutionOutcome.REJECTED.value,
                         execution_stage=ExecutionStage.COMPLETED.value, actual_duration=0,
                         actual_effects=self.ego_vehicle.to_dict(),
                         deviation={"error": "Invalid HMAC credential for emergency reset"},
-                        deviation_reason="Unauthorized emergency reset — invalid credential",
+                        deviation_reason="Unauthorized emergency reset — invalid signature",
                     )
+                # Mark credential as used (replay prevention)
+                self._used_reset_credentials.add(cred_str)
+                # Prevent unbounded growth — keep only last 1000 credentials
+                if len(self._used_reset_credentials) > 1000:
+                    self._used_reset_credentials = set(list(self._used_reset_credentials)[-1000:])
                 self.aeb_controller.reset()
                 self.ego_vehicle.set_state("STOPPED")
                 self.system_status = "NOMINAL"
