@@ -92,7 +92,12 @@ def _openai_request(endpoint: str, payload: dict, api_key: Optional[str] = None,
 def validate_image_path(path: str) -> bytes:
     """
     Validate an image file path against path traversal and directory boundary restrictions
-    and immediately read the file contents to prevent TOCTOU (time-of-check-time-of-use) attacks.
+    using descriptor-based opening to prevent TOCTOU (time-of-check-time-of-use) attacks.
+
+    Change #9 (Luna Round 5): Uses os.open with dir_fd parameter to walk each path
+    component relative to its parent directory descriptor. This eliminates the TOCTOU
+    race window between checking parent directories for symlinks and opening the file.
+    Each component is opened with O_NOFOLLOW, rejecting symlinks at every level.
 
     Allowed base directory is controlled by ORION_VISION_DATA_DIR env var (defaults to 'data/vision/').
     Returns the file contents as bytes if safe, or raises ValueError if unsafe.
@@ -122,36 +127,63 @@ def validate_image_path(path: str) -> bytes:
     if not resolved.is_relative_to(base_dir):
         raise ValueError(f"Access denied: path '{path}' escapes allowed vision directory '{base_dir}'")
 
-    # Vector #6: Check each parent directory is not a symlink (prevents TOCTOU via parent dir replacement)
-    # Walk from the target's parent up to base_dir, verifying no component is a symlink
-    current = resolved.parent
-    while current != base_dir and current != current.parent:
-        if os.path.islink(str(current)):
-            raise ValueError(
-                f"Access denied: parent directory '{current}' is a symlink "
-                f"(potential TOCTOU attack via parent-directory symlink replacement)"
-            )
-        current = current.parent
-
-    # Open immediately after validation to prevent TOCTOU symlink race
-    # Use os.open with O_NOFOLLOW to reject symlinks at the final component
     import errno
+
+    # Change #9: Descriptor-based path traversal defense.
+    # Walk from base_dir down to the target file, opening each component
+    # relative to its parent directory fd. This is TOCTOU-safe because
+    # each open is relative to a fixed directory descriptor that cannot
+    # be replaced between check and use.
     try:
-        fd = os.open(str(resolved), os.O_RDONLY | os.O_NOFOLLOW)
+        dir_fd = os.open(str(base_dir), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError as e:
-        if e.errno == errno.ELOOP:
-            raise ValueError(f"Access denied: path '{path}' is a symlink (rejected by O_NOFOLLOW)") from e
-        raise ValueError(f"Cannot open image file '{path}': {e}") from e
+        raise ValueError(f"Cannot open base directory '{base_dir}': {e}") from e
+
+    # Compute the relative path components from base_dir to resolved
+    try:
+        rel_path = resolved.relative_to(base_dir)
+    except ValueError:
+        raise ValueError(f"Access denied: path '{path}' escapes allowed vision directory '{base_dir}'")
+
+    components = list(rel_path.parts)
 
     try:
-        with os.fdopen(fd, "rb") as f:
-            data = f.read()
-    except Exception as e:
-        raise ValueError(f"Cannot read image file '{path}': {e}") from e
+        for i, component in enumerate(components):
+            is_last = (i == len(components) - 1)
+            flags = os.O_RDONLY | os.O_NOFOLLOW
+            if not is_last:
+                flags |= os.O_DIRECTORY  # Intermediate components must be directories
 
-    # Re-verify the resolved path is still within base_dir after open
-    if not Path(os.path.realpath(str(resolved))).is_relative_to(base_dir):
-        raise ValueError(f"Access denied: path '{path}' was modified after validation")
+            try:
+                next_fd = os.open(component, flags, dir_fd=dir_fd)
+            except OSError as e:
+                if e.errno == errno.ELOOP:
+                    raise ValueError(
+                        f"Access denied: path component '{component}' is a symlink "
+                        f"(rejected by O_NOFOLLOW at component {i})"
+                    ) from e
+                if e.errno == errno.ENOTDIR:
+                    raise ValueError(
+                        f"Access denied: path component '{component}' is not a directory "
+                        f"(expected directory at component {i})"
+                    ) from e
+                raise ValueError(f"Cannot open path component '{component}': {e}") from e
+
+            # Close parent directory fd and move to the next level
+            os.close(dir_fd)
+            dir_fd = next_fd
+
+        # dir_fd now points to the final file. Read its contents.
+        with os.fdopen(dir_fd, "rb") as f:
+            data = f.read()
+    except ValueError:
+        raise
+    except Exception as e:
+        try:
+            os.close(dir_fd)
+        except OSError:
+            pass
+        raise ValueError(f"Failed to read image file '{path}': {e}") from e
 
     return data
 
