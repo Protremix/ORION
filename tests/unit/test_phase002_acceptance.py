@@ -508,6 +508,33 @@ class TestLunaRound4Regressions:
         )
         assert "error" in result
 
+    def test_run_category_setup_exception_calls_teardown(self):
+        """run_category() must call teardown() even when setup() raises."""
+        from eval import EvaluationTest
+        teardown_called = []
+
+        class SetupExceptionTest(EvaluationTest):
+            @property
+            def metric(self):
+                return EvalMetric(name="rc_setup_exc", category=EvalCategory.PLANNING, description="RC setup exception")
+
+            def setup(self):
+                raise RuntimeError("setup crashed")
+
+            def teardown(self):
+                teardown_called.append(True)
+
+            def run(self, system):
+                return EvalResult(metric=self.metric, status=EvalStatus.PASSED, value=1.0)
+
+        system = MockOrionSystem()
+        eval_sys = create_orion_eval()
+        eval_sys.register_test(SetupExceptionTest())
+        results = eval_sys.run_category(EvalCategory.PLANNING, system)
+        error_results = [r for r in results if r.status == EvalStatus.ERROR]
+        assert len(error_results) > 0, "Expected ERROR from setup exception"
+        assert len(teardown_called) > 0, "teardown() should have been called in run_category"
+
     def test_opib_unimplemented_phase_fails(self):
         """OPIB phase without system implementation should FAIL, not pass."""
         from eval import OPIB, OPIBScenario
@@ -519,6 +546,71 @@ class TestLunaRound4Regressions:
         results = bench.run_benchmark(system=None)
         assert results[0].success is False, "Unimplemented OPIB phase should fail"
         assert results[0].score == 0.0
+
+
+class TestLunaRound5Regressions:
+    """Tests for Luna Round 5 specific findings."""
+
+    def test_none_system_metadata_gets_fallback(self):
+        """System with None/empty attributes should get 'unknown' fallback."""
+        from eval import EvaluationTest
+
+        class SparseSystem:
+            model_name = None
+            version = ""
+            hardware = "  "
+
+            def health_check(self):
+                return "ok"
+
+        class TestWithSparseMeta(EvaluationTest):
+            @property
+            def metric(self):
+                return EvalMetric(name="sparse_meta", category=EvalCategory.PLANNING, description="Sparse meta")
+
+            def setup(self):
+                return True
+
+            def teardown(self):
+                pass
+
+            def run(self, system):
+                return EvalResult(metric=self.metric, status=EvalStatus.PASSED, value=1.0)
+
+        system = SparseSystem()
+        eval_sys = create_orion_eval()
+        eval_sys.register_test(TestWithSparseMeta())
+        results = eval_sys.run_category(EvalCategory.PLANNING, system)
+        sparse = [r for r in results if r.metric.name == "sparse_meta"][0]
+        assert sparse.model == "unknown", f"None model_name should get 'unknown', got '{sparse.model}'"
+        assert sparse.version == "unknown", f"Empty version should get 'unknown', got '{sparse.version}'"
+        assert sparse.hardware == "unknown", f"Whitespace hardware should get 'unknown', got '{sparse.hardware}'"
+
+    def test_test_version_uses_benchmark_version(self):
+        """Custom test with default test_version should get BENCHMARK_VERSION, not '1.0'."""
+        from eval import BENCHMARK_VERSION, EvaluationTest
+
+        class DefaultVersionTest(EvaluationTest):
+            @property
+            def metric(self):
+                return EvalMetric(name="default_ver", category=EvalCategory.PLANNING, description="Default version")
+
+            def setup(self):
+                return True
+
+            def teardown(self):
+                pass
+
+            def run(self, system):
+                # Return result with dataclass default test_version="1.0"
+                return EvalResult(metric=self.metric, status=EvalStatus.PASSED, value=1.0)
+
+        system = MockOrionSystem()
+        eval_sys = create_orion_eval()
+        eval_sys.register_test(DefaultVersionTest())
+        results = eval_sys.run_category(EvalCategory.PLANNING, system)
+        default_ver = [r for r in results if r.metric.name == "default_ver"][0]
+        assert default_ver.test_version == BENCHMARK_VERSION,             f"test_version should be {BENCHMARK_VERSION}, got '{default_ver.test_version}'"
 
 
 class TestReproducibility:

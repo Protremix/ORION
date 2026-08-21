@@ -22,6 +22,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+BENCHMARK_VERSION = "1.0.0"
 
 
 # ============================================================================
@@ -256,19 +257,33 @@ class ORIONEval:
 
 
     def _ensure_metadata(self, result: EvalResult, system: Any, test: Any) -> EvalResult:
-        """Ensure all required metadata fields are populated on a result."""
-        if not result.model:
-            result.model = getattr(system, 'model_name', 'unknown')
-        if not result.version:
-            result.version = getattr(system, 'version', 'unknown')
-        if not result.hardware:
-            result.hardware = getattr(system, 'hardware', 'unknown')
-        if not result.prompt:
-            result.prompt = f"benchmark:{test.metric.name}"
-        if not result.test_version:
-            result.test_version = "1.0"
-        if not result.failure_reason:
-            result.failure_reason = ""
+        """Ensure all required metadata fields are populated on a result.
+        Treats None, empty string, and whitespace-only string as missing.
+        Falls back to framework defaults rather than propagating invalid values."""
+        def _clean(val: Any) -> str:
+            """Return the string value if non-empty, else empty string."""
+            if val is None:
+                return ""
+            s = str(val).strip()
+            return s
+
+        model = _clean(result.model) or _clean(getattr(system, 'model_name', None)) or "unknown"
+        version = _clean(result.version) or _clean(getattr(system, 'version', None)) or "unknown"
+        hardware = _clean(result.hardware) or _clean(getattr(system, 'hardware', None)) or "unknown"
+        prompt = _clean(result.prompt) or f"benchmark:{test.metric.name}"
+        # test_version: framework benchmark version, NOT silent dataclass default
+        test_ver = _clean(result.test_version)
+        if not test_ver or test_ver == "1.0":
+            # Override silent dataclass default with framework version
+            test_ver = BENCHMARK_VERSION
+        failure = _clean(result.failure_reason)
+
+        result.model = model
+        result.version = version
+        result.hardware = hardware
+        result.prompt = prompt
+        result.test_version = test_ver
+        result.failure_reason = failure
         return result
 
     def run_all(self, system: Any) -> EvalReport:
@@ -360,6 +375,10 @@ class ORIONEval:
                         test_version="1.0",
                         failure_reason=f"Setup raised: {e}",
                     ))
+                    try:
+                        test.teardown()
+                    except Exception:
+                        pass
                     continue
                 if not setup_ok:
                     results.append(EvalResult(

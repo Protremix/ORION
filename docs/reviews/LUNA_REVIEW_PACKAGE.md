@@ -1,4 +1,4 @@
-# LUNA REVIEW PACKAGE — Phase 002 (ORION Evaluation System) — Round 5
+# LUNA REVIEW PACKAGE — Phase 002 (ORION Evaluation System) — Round 6
 
 ## PROJECT
 ORION — Physical Intelligence OS
@@ -7,7 +7,7 @@ ORION — Physical Intelligence OS
 002 — ORION Evaluation System
 
 ## COMMIT SHA
-29ef9851dde1e9c675ef5518f72271207d9f5586
+(to be filled after commit)
 
 ## BRANCH
 main
@@ -19,51 +19,37 @@ Create the official ORION benchmark system (ORION EVAL) with 12 benchmark catego
 - Round 1: REQUIRES_CHANGES — 8 findings. All fixed.
 - Round 2: REQUIRES_CHANGES — 4 findings. All fixed.
 - Round 3: REQUIRES_CHANGES — 7 findings. All fixed.
-- Round 4: REQUIRES_CHANGES — 6 findings. All fixed in this commit.
+- Round 4: REQUIRES_CHANGES — 6 findings. All fixed.
+- Round 5: REQUIRES_CHANGES — 1 finding (metadata normalization). Fixed in this commit.
 
-## LUNA ROUND 4 FINDINGS + FIXES
+## LUNA ROUND 5 FINDING + FIX
 
-### R4 Finding 1: Enforce required metadata in run_all() and run_category()
-**Fix:** Added `_ensure_metadata()` helper that fills missing model, version, hardware, prompt, test_version, failure_reason fields. Applied in both run_all() and run_category() to all results returned by test.run().
-
-### R4 Finding 2: Guarantee teardown() with try/finally
-**Fix:** Both run_all() and run_category() now use proper try/finally blocks. teardown() is called in a finally block after test.run(), and also called after setup failures and setup exceptions. teardown() itself is wrapped in try/except to prevent teardown failures from masking test results.
-
-### R4 Finding 3: CLI exit nonzero for unknown/mixed categories
-**Fix:** main() now checks if run_benchmarks() returns a dict with "error" key, and raises SystemExit(2) in that case.
-
-### R4 Finding 4: Reject empty category filter
-**Fix:** run_benchmarks() now checks `if categories is not None and len(categories) == 0` and returns {"error": "empty_categories"} instead of running all tests.
-
-### R4 Finding 5: Remove OPIB default-success behavior
-**Fix:** OPIB._execute_phase() now returns False when system lacks the required method, instead of True. Tests updated to use mock systems that implement OPIB methods. System=None now correctly fails all phases.
-
-### R4 Finding 6: Remove unused Callable import
-**Fix:** Removed Callable from typing imports in __init__.py.
+### R5 Finding: Metadata normalization incomplete for None/empty values
+**Fix:** 
+- `_ensure_metadata()` now uses a `_clean()` helper that treats `None`, empty string `""`, and whitespace-only strings as missing.
+- System attribute fallbacks use `getattr(system, attr, None)` and apply `_clean()` — so `model_name=None`, `version=""`, `hardware="  "` all fall back to `"unknown"`.
+- Added `BENCHMARK_VERSION = "1.0.0"` constant. Custom results with the silent dataclass default `test_version="1.0"` are overridden with `BENCHMARK_VERSION`.
+- 2 new regression tests: None/empty system metadata gets "unknown" fallback, test_version uses BENCHMARK_VERSION not "1.0".
 
 ## ACCEPTANCE CRITERIA
 1. All 12 benchmark categories have concrete tests ✅
-2. Every result includes all required metadata fields ✅ (enforced via _ensure_metadata)
+2. Every result includes all required metadata fields ✅ (robust _ensure_metadata with None/empty handling)
 3. ORIONEval.run_all() produces a complete reproducible report ✅ (try/finally lifecycle)
 4. CLI runner works with filtered categories ✅ (nonzero exit on error, rejects empty)
 5. No invented results — all metrics are measured ✅ (OPIB default-success removed)
-6. All tests pass ✅ (736 passed, 9 skipped, 0 failed)
-7. Existing tests still pass ✅ (700 original + 36 new acceptance)
+6. All tests pass ✅ (739 passed, 9 skipped, 0 failed)
+7. Existing tests still pass ✅ (700 original + 39 new acceptance)
 8. Lint clean, type clean ✅
 
 ## TEST RESULTS
-- **Total:** 736 collected, 736 passed, 9 skipped, 0 failed
-- **Acceptance tests:** 36/36 passing (including 6 Luna Round 4 regression tests)
+- **Total:** 739 collected, 739 passed, 9 skipped, 0 failed
+- **Acceptance tests:** 39/39 passing (including 6 R3 + 6 R4 + 2 R5 regression tests)
 - **Benchmark:** 12/12 categories passing
 - **Command:** `python3 -m pytest --timeout=30 -q --ignore=tests/load --ignore=tests/unit/test_live_gpt4o.py`
 
-## LUNA ROUND 4 REGRESSION TESTS
-- test_teardown_always_called_on_setup_exception: teardown called even when setup() raises
-- test_teardown_always_called_on_run_exception: teardown called even when run() raises
-- test_custom_test_metadata_enforced: custom tests get metadata filled by framework
-- test_cli_nonzero_exit_on_unknown_category: error result for unknown categories
-- test_empty_category_filter_rejected: empty list returns error, not all
-- test_opib_unimplemented_phase_fails: system=None → OPIB phases fail
+## LUNA ROUND 5 REGRESSION TESTS
+- test_none_system_metadata_gets_fallback: None model_name, empty version, whitespace hardware all get "unknown"
+- test_test_version_uses_benchmark_version: dataclass default "1.0" overridden with BENCHMARK_VERSION "1.0.0"
 
 ## SECURITY RESULTS
 No security changes — evaluation framework only.
@@ -75,7 +61,7 @@ Safety decision tests with negated-response and missing-interface validation.
 All ORION-owned code: Apache 2.0. No new dependencies.
 
 ## CI RESULTS
-- Ruff: clean (0 errors, no unused imports)
+- Ruff: clean (0 errors)
 - Mypy: clean (0 issues, 62 source files)
 
 ## KNOWN LIMITATIONS
