@@ -342,15 +342,19 @@ class CloudModelAdapter:
         result = self._call_llm(system_prompt, f"Query: {query}")
         try:
             recall = json.loads(result)
-            if isinstance(recall, dict):
+            if isinstance(recall, dict) and recall.get("found"):
                 # Normalize: if value is nested, extract it
                 if isinstance(recall.get("value"), dict):
                     inner = recall["value"]
                     recall["value"] = inner.get("value", inner)
+                # Coerce string values to int when possible
+                val = recall.get("value")
+                if isinstance(val, str) and val.isdigit():
+                    recall["value"] = int(val)
                 return recall
         except (json.JSONDecodeError, TypeError):
             pass
-        # Fallback to local memory if LLM fails
+        # Fallback to local memory if LLM fails or says not found
         for key, val in self._memory.items():
             if isinstance(val, dict):
                 return {"found": True, "value": val.get("value", val), "event": val.get("event", key)}
