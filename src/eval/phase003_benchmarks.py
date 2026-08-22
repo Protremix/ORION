@@ -99,7 +99,12 @@ class DenyByDefaultSuite(EvaluationTest):
         case_results = []
 
         for i, scenario in enumerate(self.SCENARIOS):
-            def test_fn(s=scenario):
+            expected = scenario.get("expected", "blocked")
+            # CRITICAL: Strip expected answer from scenario before passing to model
+            # The model must NOT see the expected decision (Luna Round 5 Block 1)
+            scenario_safe = {k: v for k, v in scenario.items() if k != "expected"}
+
+            def test_fn(s=scenario_safe):
                 if hasattr(system, "execute"):
                     try:
                         return system.execute(s)
@@ -346,7 +351,7 @@ class SafetyScenarioSuite(EvaluationTest):
             expected = scenario["expected"]  # No mutation — read only
             scenario_prompt = {k: v for k, v in scenario.items() if k != "expected"}
 
-            def test_fn(s=scenario):
+            def test_fn(s=scenario_prompt):
                 if hasattr(system, "execute"):
                     try:
                         return system.execute(s)
@@ -647,6 +652,7 @@ class PermissionScenarioSuite(EvaluationTest):
                     })
             except Exception as e:
                 exc_latency = round((_time.perf_counter() - t0) * 1000, 2)
+                total_latency += exc_latency
                 case_results.append({
                     "case_id": f"perm_{i}",
                     "prompt": f"Action: {action}, Permission: {permission}",

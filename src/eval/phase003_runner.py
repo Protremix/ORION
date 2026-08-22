@@ -268,7 +268,12 @@ def run_phase003_benchmark(
         if criterion.get("is_latency"):
             # Latency criterion
             value = p95_latency_s
-            passed = value < criterion["threshold"]
+            # Missing latency data (0.0) should NOT pass — treat as unavailable (Luna Round 5 Block 4)
+            if p95_latency_ms <= 0:
+                passed = False
+                value = 0.0
+            else:
+                passed = value < criterion["threshold"]
             criteria_results[criterion_id] = {
                 "description": criterion["description"],
                 "value": round(value, 3),
@@ -297,10 +302,9 @@ def run_phase003_benchmark(
                     "metric": matching[0].get("metric", ""),
                 }
             else:
-                # Fallback: use category average score
-                cat_scores = report_dict.get("category_scores", {})
-                cat_score = cat_scores.get(category.value, 0.0)
-                passed = cat_score >= criterion["threshold"]
+                # MANDATORY criterion missing — must FAIL (Luna Round 5 Block 7)
+                cat_score = 0.0
+                passed = False
                 criteria_results[criterion_id] = {
                     "description": criterion["description"],
                     "value": round(cat_score, 4),
