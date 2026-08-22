@@ -134,10 +134,13 @@ FRAMES (image/video/sensor data)
 | AC10 | WorldState persists via WorldStateManager (Phase 005 integration) | Integration test: build WorldState → store → retrieve → verify |
 | AC11 | All tests pass | pytest -q (zero failures) |
 | AC12 | Ruff/mypy clean | ruff check + mypy |
+| AC13 | FrameObserver processes a frame in < 100ms (simulation mode) | Benchmark test: observe() latency < 100ms |
+| AC14 | ChangeDetector compares two WorldStates in < 50ms | Benchmark test: detect() latency < 50ms |
+| AC15 | WorldStateBuilder builds state from 10 observations in < 200ms | Benchmark test: build() latency < 200ms |
 
 ## 5. Test Plan
 
-### Unit Tests (~30 tests)
+### Unit Tests (~35 tests)
 - FrameObserver: observe single frame, batch, empty frame, malformed frame
 - WorldStateBuilder: build from single obs, merge with existing, empty obs, confidence aggregation
 - WorldEntity: construction, to_dict, from_dict, equality
@@ -145,7 +148,7 @@ FRAMES (image/video/sensor data)
 - ChangeDetector: added, removed, modified, relationship changes, environment changes, no changes, threshold
 - WorldState: construction, to_dict, to StateSnapshot conversion
 
-### Integration Tests (~10 tests)
+### Integration Tests (~12 tests)
 - Multi-frame observation → change detection pipeline
 - WorldState → WorldStateManager → MemoryManager persistence
 - WorldState → StateSnapshot → WorldModel.predict() pipeline
@@ -202,7 +205,25 @@ This spec follows: Specification → Architecture → Implementation → Test �
 
 **Current stage:** Specification — pending Luna review per Founder decision.
 
-## 10. Risks
+## 10. State History Scalability
+
+### Problem
+WorldStateManager stores temporal history of all world states. Over long sessions, this grows unbounded.
+
+### Solution
+- **Max history size:** 1000 states (configable via `max_history` parameter)
+- **Eviction policy:** FIFO — oldest states evicted when limit reached
+- **Significant state retention:** States with significant changes are marked and never evicted
+- **Compaction:** Every 100 states, merge non-significant consecutive states into a single summary state
+- **Memory integration:** Full history persisted to Phase 005 MemoryManager (long-term memory), WorldStateManager keeps recent window only
+
+### Performance Targets
+- Query recent N states: O(N) with N ≤ 1000
+- Get latest state: O(1)
+- Add state: O(1) amortized (ring buffer)
+- Memory footprint: < 10MB for 1000 states
+
+## 11. Risks
 
 | Risk | Mitigation |
 |---|---|
