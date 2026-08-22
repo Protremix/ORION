@@ -324,18 +324,26 @@ class ORIONEval:
             failure_reason="Setup failed",
         )
 
-    def run_all(self, system: Any) -> EvalReport:
-        """Run all registered evaluation tests."""
+    def run_all(self, system: Any, per_test_timeout: float = 120.0) -> EvalReport:
+        """Run all registered evaluation tests with per-test timeout and progress logging."""
+        import signal
+        import threading
+
         report = EvalReport(
             report_id=f"eval_{int(time.time())}",
             metadata={"test_count": len(self._tests), "benchmark_version": "1.0.0"},
         )
 
-        for test in self._tests:
+        total = len(self._tests)
+        for idx, test in enumerate(self._tests):
+            test_name = test.metric.name
+            print(f"[{idx+1}/{total}] {test_name} — starting...", flush=True)
+            t_start = time.time()
+
             try:
                 setup_ok = test.setup()
             except Exception as e:
-                logger.error(f"Eval test {test.metric.name} setup error: {e}")
+                logger.error(f"Eval test {test_name} setup error: {e}")
                 report.results.append(self._make_error_result(
                     test, system, str(e), f"Setup raised: {e}", "setup"))
                 try:
@@ -351,13 +359,45 @@ class ORIONEval:
                     pass
                 continue
             try:
-                result = test.run(system)
-                result = self._ensure_metadata(result, system, test)
-                report.results.append(result)
+                # Run test with timeout using threading
+                result_box: list = []
+                exc_box: list = []
+
+                def _run_test():
+                    try:
+                        result_box.append(test.run(system))
+                    except Exception as e:
+                        exc_box.append(e)
+
+                thread = threading.Thread(target=_run_test, daemon=True)
+                thread.start()
+                thread.join(timeout=per_test_timeout)
+
+                if thread.is_alive():
+                    # Test timed out — log and record error
+                    elapsed = time.time() - t_start
+                    print(f"[{idx+1}/{total}] {test_name} — TIMEOUT after {per_test_timeout}s", flush=True)
+                    report.results.append(self._make_error_result(
+                        test, system, f"Test timed out after {per_test_timeout}s",
+                        f"Timeout after {per_test_timeout}s (elapsed {elapsed:.1f}s)",
+                        "run_timeout"))
+                elif exc_box:
+                    raise exc_box[0]
+                elif result_box:
+                    result = result_box[0]
+                    result = self._ensure_metadata(result, system, test)
+                    report.results.append(result)
+                    elapsed = time.time() - t_start
+                    status = result.status.name if hasattr(result, 'status') else '?'
+                    print(f"[{idx+1}/{total}] {test_name} — {status} in {elapsed:.1f}s", flush=True)
+                else:
+                    raise RuntimeError("Test produced no result and no exception")
             except Exception as e:
-                logger.error(f"Eval test {test.metric.name} error: {e}")
+                logger.error(f"Eval test {test_name} error: {e}")
                 report.results.append(self._make_error_result(
                     test, system, str(e), str(e), "run"))
+                elapsed = time.time() - t_start
+                print(f"[{idx+1}/{total}] {test_name} — ERROR in {elapsed:.1f}s: {e}", flush=True)
             finally:
                 try:
                     test.teardown()
