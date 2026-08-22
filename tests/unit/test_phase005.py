@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 from src.core.permission_engine import PermissionLevel
 from src.memory.memory_decay import DecayReport, MemoryDecay
 from src.memory.memory_manager import MemoryManager, MemoryResult
-from src.memory.memory_permissions import MemoryOperation, MemoryPermissions
+from src.memory.memory_permissions import MemoryOperation, MemoryPermissions, MemoryRequestContext
 from src.memory.memory_retriever import MemoryRetriever, RetrievalResult
 from src.memory.memory_system import (
     ContradictionDetector,
@@ -252,25 +252,25 @@ class TestMemoryRetriever(unittest.TestCase):
         self.store.close()
 
     def test_retrieve_by_keyword(self) -> None:
-        results = self.retriever.retrieve("event", max_results=5)
+        results = self.retriever.retrieve("event", max_results=5, requester_level=PermissionLevel.ADMIN)
         self.assertGreater(len(results), 0)
 
     def test_retrieve_by_type(self) -> None:
-        entries = self.retriever.retrieve_by_type(MemoryType.EPISODIC, max_results=10)
+        entries = self.retriever.retrieve_by_type(MemoryType.EPISODIC, max_results=10, requester_level=PermissionLevel.ADMIN)
         self.assertEqual(len(entries), 5)
 
     def test_retrieve_recent(self) -> None:
-        entries = self.retriever.retrieve_recent(n=3)
+        entries = self.retriever.retrieve_recent(n=3, requester_level=PermissionLevel.ADMIN)
         self.assertLessEqual(len(entries), 3)
 
     def test_retrieve_related(self) -> None:
-        entries = self.retriever.retrieve_by_type(MemoryType.EPISODIC, max_results=10)
+        entries = self.retriever.retrieve_by_type(MemoryType.EPISODIC, max_results=10, requester_level=PermissionLevel.ADMIN)
         if entries:
-            related = self.retriever.retrieve_related(entries[0].id, max_results=5)
+            related = self.retriever.retrieve_related(entries[0].id, max_results=5, requester_level=PermissionLevel.ADMIN)
             self.assertLessEqual(len(related), 5)
 
     def test_retrieve_ranking(self) -> None:
-        results = self.retriever.retrieve("event", max_results=5)
+        results = self.retriever.retrieve("event", max_results=5, requester_level=PermissionLevel.ADMIN)
         if len(results) > 1:
             # Higher confidence entries should generally rank higher
             for i in range(len(results) - 1):
@@ -550,3 +550,140 @@ class TestCoreMemoryIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLunaR1Fixes(unittest.TestCase):
+    """Tests for Luna Round 1 required changes."""
+
+    def setUp(self) -> None:
+        self.perms = MemoryPermissions()
+
+    def test_audit_trail_write_denied_via_generic_api(self) -> None:
+        """Luna R1 #3: AUDIT_TRAIL cannot be written through generic APIs."""
+        result = self.perms.can_write(
+            MemoryType.AUDIT_TRAIL,
+            SourceType.AGENT,
+            requester_level=PermissionLevel.ADMIN,
+        )
+        self.assertFalse(result.allowed)
+        self.assertIn("audit", result.reason.lower())
+
+    def test_audit_trail_delete_denied(self) -> None:
+        """Luna R1 #3: AUDIT_TRAIL cannot be deleted through generic APIs."""
+        result = self.perms.can_delete(
+            MemoryType.AUDIT_TRAIL,
+            requester_level=PermissionLevel.ADMIN,
+        )
+        self.assertFalse(result.allowed)
+        self.assertIn("immutable", result.reason.lower())
+
+    def test_audit_trail_read_requires_admin(self) -> None:
+        """Luna R1 #3: AUDIT_TRAIL reads require ADMIN."""
+        result = self.perms.can_read(
+            MemoryType.AUDIT_TRAIL,
+            requester_level=PermissionLevel.EXECUTE,
+        )
+        self.assertFalse(result.allowed)
+
+        result_admin = self.perms.can_read(
+            MemoryType.AUDIT_TRAIL,
+            requester_level=PermissionLevel.ADMIN,
+        )
+        self.assertTrue(result_admin.allowed)
+
+    def test_memory_request_context_frozen(self) -> None:
+        """Luna R1 #1: MemoryRequestContext is immutable."""
+        ctx = MemoryRequestContext(
+            principal_id="agent_001",
+            task_id="task_42",
+            source_type=SourceType.AGENT,
+            permission_level=PermissionLevel.EXECUTE,
+        )
+        with self.assertRaises(AttributeError):
+            ctx.principal_id = "hacker"  # type: ignore
+
+    def test_memory_request_context_with_level(self) -> None:
+        """Luna R1 #1: with_level returns new context."""
+        ctx = MemoryRequestContext(
+            principal_id="agent_001",
+            permission_level=PermissionLevel.READ,
+        )
+        ctx2 = ctx.with_level(PermissionLevel.ADMIN)
+        self.assertEqual(ctx2.permission_level, PermissionLevel.ADMIN)
+        self.assertEqual(ctx.permission_level, PermissionLevel.READ)  # original unchanged
+
+    def test_resolve_context_from_engine(self) -> None:
+        """Luna R1 #1: Permission level resolved from engine."""
+        class FakeEngine:
+            _current_level = PermissionLevel.EXECUTE
+
+        perms = MemoryPermissions(permission_engine=FakeEngine())
+        ctx = perms.resolve_context(principal_id="test_agent")
+        self.assertEqual(ctx.permission_level, PermissionLevel.EXECUTE)
+
+    def test_write_irreversible_level_in_read_matrix(self) -> None:
+        """Luna R1 #2: IRREVERSIBLE level can read non-audit types."""
+        result = self.perms.can_read(
+            MemoryType.SEMANTIC,
+            requester_level=PermissionLevel.IRREVERSIBLE,
+        )
+        self.assertTrue(result.allowed)
+
+    def test_filter_readable_types_excludes_audit(self) -> None:
+        """Luna R1 #2: filter_readable_types excludes AUDIT_TRAIL for non-admin."""
+        all_types = set(MemoryType)
+        filtered = self.perms.filter_readable_types(
+            all_types, requester_level=PermissionLevel.EXECUTE,
+        )
+        self.assertNotIn(MemoryType.AUDIT_TRAIL, filtered)
+        self.assertIn(MemoryType.SEMANTIC, filtered)
+
+    def test_filter_readable_types_includes_audit_for_admin(self) -> None:
+        """Luna R1 #2: ADMIN can read all types including AUDIT_TRAIL."""
+        all_types = set(MemoryType)
+        filtered = self.perms.filter_readable_types(
+            all_types, requester_level=PermissionLevel.ADMIN,
+        )
+        self.assertIn(MemoryType.AUDIT_TRAIL, filtered)
+
+    def test_retriever_permission_filtered(self) -> None:
+        """Luna R1 #2: Retriever filters by permission level."""
+        store = MemoryStore()
+        retriever = MemoryRetriever(store, permissions=MemoryPermissions())
+
+        # Write an episodic memory with proper permissions
+        entry = EpisodicMemory(
+            content={"event": "test"},
+            confidence=0.9,
+            provenance=Provenance(
+                writer_id="test",
+                writer_permissions=["memory:write:episodic"],
+                source_type=SourceType.AGENT,
+            ),
+        )
+        store.write_memory(entry, actor_permissions=["memory:write:episodic"])
+
+        # READ level should not see EPISODIC
+        results = retriever.retrieve_by_type(
+            MemoryType.EPISODIC, requester_level=PermissionLevel.READ,
+        )
+        self.assertEqual(len(results), 0)
+
+        # EXECUTE level should see EPISODIC
+        results = retriever.retrieve_by_type(
+            MemoryType.EPISODIC, requester_level=PermissionLevel.EXECUTE,
+        )
+        self.assertEqual(len(results), 1)
+
+        store.close()
+
+    def test_retriever_max_results_cap(self) -> None:
+        """Luna R1 #10: Resource limit — max results capped."""
+        store = MemoryStore()
+        retriever = MemoryRetriever(store, permissions=MemoryPermissions())
+        results = retriever.retrieve(
+            "test", max_results=99999, requester_level=PermissionLevel.ADMIN,
+        )
+        # Should be capped at MAX_RESULTS_CAP
+        self.assertLessEqual(len(results), MemoryRetriever.MAX_RESULTS_CAP)
+        store.close()
