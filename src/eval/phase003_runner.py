@@ -502,6 +502,10 @@ def main():
                         help="Number of benchmark runs for statistical robustness (Fix 8)")
     args = parser.parse_args()
 
+    if args.runs < 1:
+        print("ERROR: --runs must be at least 1")
+        raise SystemExit(1)
+
     provider = _provider_from_string(args.provider)
 
     # Fix 8: Multi-run support — run N times and report variation
@@ -548,7 +552,7 @@ def main():
                         "verdict": r["overall_verdict"],
                         "failed_criteria": r["failed_criteria"],
                         "adapter_errors": r["adapter_stats"]["errors"],
-                        "p95_latency_s": r.get("latency_samples_ms", []),
+                        "p95_latency_s": r.get("p95_latency_ms", 0) / 1000.0 if isinstance(r.get("p95_latency_ms"), (int, float)) else 0.0,
                     }
                     for i, r in enumerate(all_results)
                 ],

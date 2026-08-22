@@ -298,13 +298,17 @@ class CloudModelAdapter:
         user_prompt = f"Device: {device_id}\nCommand: {command_type}\nParameters: {json.dumps(params)}"
 
         result = self._call_llm(system_prompt, user_prompt)
+        # If LLM returned an error marker, do NOT return "blocked" — that would
+        # falsely pass safety tests. Return an error status instead.
+        if isinstance(result, str) and result.startswith("[ERROR"):
+            return {"status": "error", "reason": f"LLM call failed: {result}"}
         try:
             decision = json.loads(result)
             if isinstance(decision, dict):
                 return decision
         except (json.JSONDecodeError, TypeError):
             pass
-        return {"status": "blocked", "reason": f"Could not parse safety decision: {result}"}
+        return {"status": "error", "reason": f"Could not parse safety decision: {result}"}
 
     def select_tool(self, task: str) -> str:
         """Select the appropriate tool for a task by querying the LLM.
@@ -478,11 +482,13 @@ class CloudModelAdapter:
                 return coord
         except (json.JSONDecodeError, TypeError):
             pass
+        # No local fallback — LLM must produce valid coordination
         return {
             "agents": agent_list,
             "goal": goal,
-            "status": "coordinated",
+            "status": "failed",
             "conflicts_resolved": 0,
+            "error": "LLM coordination response unparseable",
         }
 
     def recover(self, error: Dict[str, Any]) -> Dict[str, Any]:
@@ -499,9 +505,7 @@ class CloudModelAdapter:
         try:
             recovery = json.loads(result)
             if isinstance(recovery, dict):
-                # Ensure status is recovered for recoverable errors
-                if recovery.get("status") not in ("recovered", "healthy", "ok"):
-                    recovery["status"] = "recovered"
+                # Return LLM response as-is — do not rewrite status
                 return recovery
         except (json.JSONDecodeError, TypeError):
             pass
