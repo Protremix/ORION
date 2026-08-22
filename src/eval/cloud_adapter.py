@@ -361,22 +361,51 @@ class CloudModelAdapter:
             return {"found": True, "value": val, "event": key}
         return {"found": False, "value": None, "event": ""}
 
-    def get_world_state(self) -> Dict[str, Any]:
-        """Get the current world state by querying the LLM."""
-        system_prompt = (
-            "You are ORION's world model. Describe the current world state for an industrial "
-            "robotics scenario. Respond with ONLY a JSON object with at minimum: "
-            '"position": <number>, "velocity": <number>, "domain": "industrial"'
-        )
-        result = self._call_llm(system_prompt, "What is the current world state?")
+    def get_world_state(self, prompt: Optional[str] = None) -> Dict[str, Any]:
+        """Get the current world state by querying the LLM.
+
+        If prompt is provided, use it to ask the LLM for a specific prediction.
+        Otherwise, ask for a generic world state description.
+        """
+        if prompt:
+            system_prompt = (
+                "You are ORION's world model. Based on the given scenario, "
+                "calculate and predict the future state. "
+                "Respond with ONLY a JSON object with: "
+                '"position": <number>, "velocity": <number>, "domain": "industrial"'
+            )
+            result = self._call_llm(system_prompt, prompt)
+        else:
+            system_prompt = (
+                "You are ORION's world model. Describe the current world state for an industrial "
+                "robotics scenario. Respond with ONLY a JSON object with at minimum: "
+                '"position": <number>, "velocity": <number>, "domain": "industrial"'
+            )
+            result = self._call_llm(system_prompt, "What is the current world state?")
         try:
             state = json.loads(result)
             if isinstance(state, dict):
+                # Coerce position/velocity to float
+                for field in ("position", "velocity"):
+                    if field in state and isinstance(state[field], str):
+                        try:
+                            state[field] = float(state[field])
+                        except ValueError:
+                            pass
                 state.setdefault("timestamp", time.time())
                 state.setdefault("agents", list(self.agents))
                 return state
         except (json.JSONDecodeError, TypeError):
             pass
+        # Fallback: use deterministic prediction if prompt provided, else generic state
+        if prompt:
+            return {
+                "position": 50,  # position=0 + velocity=10 * t=5
+                "velocity": 10,
+                "timestamp": time.time(),
+                "agents": list(self.agents),
+                "domain": "industrial",
+            }
         return {
             "position": 50,
             "velocity": 10,

@@ -615,11 +615,14 @@ class WorldStateTrackingTest(EvaluationTest):
         prompt = "Track: vehicle at position 0, velocity 10, predict position at t=5"
 
         def test_fn():
+            # Try get_world_state with prediction prompt — tests LLM-based world modeling
             if hasattr(system, "get_world_state"):
                 try:
-                    return system.get_world_state()
+                    return system.get_world_state(
+                        "Track: vehicle at position 0, velocity 10, predict position at t=5"
+                    )
                 except Exception:
-                    return None
+                    pass
             if hasattr(system, "predict"):
                 try:
                     return system.predict({"position": 0, "velocity": 10}, t=5)
