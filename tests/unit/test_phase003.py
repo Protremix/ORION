@@ -51,6 +51,13 @@ class TestCloudModelAdapter:
         assert adapter.model_name == "test-model"
         assert adapter.hardware == "cloud-api"
 
+    def test_adapter_has_raw_response_tracking(self):
+        """Adapter must track raw LLM responses for evidence (Fix 11)."""
+        adapter = CloudModelAdapter(model="test-model")
+        assert hasattr(adapter, "_last_raw_response")
+        assert hasattr(adapter, "_last_raw_plan_response")
+        assert hasattr(adapter, "_latency_samples")
+
     def test_provider_config(self):
         """All providers have correct base URLs."""
         assert CloudProvider.OPENAI.value == "openai"
@@ -67,40 +74,41 @@ class TestCloudModelAdapter:
         assert adapter._call_count == 0
         assert adapter._errors == 0
 
-    def test_select_tool_maps_memory_tasks(self):
-        """select_tool returns 'recall' for memory-related tasks."""
+    def test_select_tool_with_mocked_llm(self):
+        """select_tool returns correct tool when LLM responds properly."""
         adapter = CloudModelAdapter(model="test-model")
-        assert adapter.select_tool("query_memory") == "recall"
-        assert adapter.select_tool("recall past events") == "recall"
-        assert adapter.select_tool("query database") == "recall"
+        with patch.object(adapter, "_call_llm", return_value="recall"):
+            assert adapter.select_tool("query_memory") == "recall"
+        with patch.object(adapter, "_call_llm", return_value="plan"):
+            assert adapter.select_tool("plan a route") == "plan"
+        with patch.object(adapter, "_call_llm", return_value="check"):
+            assert adapter.select_tool("check_safety") == "check"
 
-    def test_select_tool_maps_planning_tasks(self):
-        """select_tool returns 'plan' for planning tasks."""
+    def test_select_tool_no_fallback_on_llm_failure(self):
+        """select_tool returns error marker when LLM returns unrecognized response (Fix 3)."""
         adapter = CloudModelAdapter(model="test-model")
-        assert adapter.select_tool("plan a route") == "plan"
+        with patch.object(adapter, "_call_llm", return_value="invalid_tool_name"):
+            result = adapter.select_tool("do something")
+            assert result.startswith("[ERROR:")
 
-    def test_select_tool_maps_safety_tasks(self):
-        """select_tool returns 'check' for safety tasks."""
+    def test_remember_recall_with_mocked_llm(self):
+        """remember() + recall() with mocked LLM returns stored values."""
         adapter = CloudModelAdapter(model="test-model")
-        assert adapter.select_tool("check_safety") == "check"
+        adapter.remember({"event": "test_event_001", "value": 42})
+        mock_response = json.dumps({"found": True, "value": 42, "event": "test_event_001"})
+        with patch.object(adapter, "_call_llm", return_value=mock_response):
+            result = adapter.recall("test_event")
+            assert result["found"] is True
+            assert result["value"] == 42
 
-    def test_remember_recall_roundtrip(self):
-        """remember() + recall() stores and retrieves values correctly."""
+    def test_remember_recall_no_fallback_on_llm_failure(self):
+        """recall() returns found=False when LLM fails (Fix 3 — no local fallback)."""
         adapter = CloudModelAdapter(model="test-model")
-        test_data = {"event": "test_event_001", "value": 42}
-        adapter.remember(test_data)
-        result = adapter.recall("test_event")
-        assert result["found"] is True
-        assert result["value"] == 42
-        assert result["event"] == "test_event_001"
-
-    def test_remember_recall_simple_value(self):
-        """recall() works with non-dict values."""
-        adapter = CloudModelAdapter(model="test-model")
-        adapter.remember(123)
-        result = adapter.recall("anything")
-        assert result["found"] is True
-        assert result["value"] == 123
+        adapter.remember({"event": "test", "value": 42})
+        with patch.object(adapter, "_call_llm", return_value="[ERROR: connection failed]"):
+            result = adapter.recall("test")
+            assert result["found"] is False
+            assert "error" in result
 
     def test_health_check(self):
         """health_check returns status."""
@@ -109,13 +117,30 @@ class TestCloudModelAdapter:
         assert result["status"] == "healthy"
         assert result["model"] == "test-model"
 
-    def test_get_world_state(self):
-        """get_world_state returns valid state dict."""
+    def test_get_world_state_with_mocked_llm(self):
+        """get_world_state returns valid state when LLM responds properly."""
         adapter = CloudModelAdapter(model="test-model")
-        state = adapter.get_world_state()
-        assert "position" in state
-        assert "velocity" in state
-        assert "agents" in state
+        mock_state = json.dumps({"position": 50, "velocity": 10, "domain": "industrial"})
+        with patch.object(adapter, "_call_llm", return_value=mock_state):
+            state = adapter.get_world_state()
+            assert state["position"] == 50
+            assert state["velocity"] == 10
+            assert state["domain"] == "industrial"
+
+    def test_get_world_state_no_fallback_on_llm_failure(self):
+        """get_world_state returns error state when LLM fails (Fix 3)."""
+        adapter = CloudModelAdapter(model="test-model")
+        with patch.object(adapter, "_call_llm", return_value="not json at all"):
+            state = adapter.get_world_state()
+            assert "error" in state
+            assert state["position"] is None
+
+    def test_get_confidence_no_fallback_on_llm_failure(self):
+        """get_confidence returns -1.0 when LLM fails (Fix 3 — no 0.85 fallback)."""
+        adapter = CloudModelAdapter(model="test-model")
+        with patch.object(adapter, "_call_llm", return_value="not a number"):
+            conf = adapter.get_confidence()
+            assert conf == -1.0
 
     def test_predict_basic(self):
         """predict() computes future state from current state."""
@@ -124,28 +149,46 @@ class TestCloudModelAdapter:
         assert result["position"] == 50
         assert result["velocity"] == 10
 
-    def test_get_stats(self):
-        """get_stats returns call statistics."""
+    def test_get_stats_includes_latency_samples(self):
+        """get_stats includes latency_samples_ms and raw response fields (Fix 6, 11)."""
         adapter = CloudModelAdapter(model="test-model")
         stats = adapter.get_stats()
         assert "model" in stats
         assert "api_calls" in stats
         assert "errors" in stats
+        assert "latency_samples_ms" in stats
+        assert "last_raw_response" in stats
+        assert "last_raw_plan_response" in stats
         assert stats["api_calls"] == 0
 
-    def test_coordinate_returns_dict(self):
-        """coordinate() returns coordination result."""
+    def test_coordinate_with_mocked_llm(self):
+        """coordinate() returns coordination result with mocked LLM."""
         adapter = CloudModelAdapter(model="test-model")
-        result = adapter.coordinate(["agent_a", "agent_b"], goal="test_goal")
-        assert "agents" in result
-        assert "goal" in result
+        mock_resp = json.dumps({
+            "agents": ["agent_a", "agent_b"],
+            "goal": "test_goal",
+            "status": "coordinated",
+            "conflicts_resolved": 0,
+        })
+        with patch.object(adapter, "_call_llm", return_value=mock_resp):
+            result = adapter.coordinate(["agent_a", "agent_b"], goal="test_goal")
+            assert "agents" in result
+            assert "goal" in result
 
-    def test_recover_returns_recovered_status(self):
-        """recover() returns 'recovered' status."""
+    def test_recover_no_fallback_on_llm_failure(self):
+        """recover() returns failed status when LLM fails (Fix 3 — no 'recovered' fallback)."""
         adapter = CloudModelAdapter(model="test-model")
-        result = adapter.recover({"error": "connection_failure"})
-        # Without a live API call, fallback returns "recovered"
-        assert result["status"] in ("recovered", "healthy", "ok")
+        with patch.object(adapter, "_call_llm", return_value="not json"):
+            result = adapter.recover({"error": "connection_failure"})
+            assert result["status"] != "recovered"
+            assert "error" in result
+
+    def test_plan_no_fallback_on_llm_failure(self):
+        """plan() returns empty list when LLM fails (Fix 3 — no newline split fallback)."""
+        adapter = CloudModelAdapter(model="test-model")
+        with patch.object(adapter, "_call_llm", return_value="verbose prose\nwithout json"):
+            result = adapter.plan("do something")
+            assert result == []
 
 
 class TestPhase003Criteria:
@@ -190,13 +233,28 @@ class TestPhase003MockRun:
         eval_system = create_orion_eval()
 
         # Run benchmarks — most methods don't make API calls
-        # (get_world_state, predict, health_check, get_confidence are local)
         report = eval_system.run_all(adapter)
         report_dict = report.to_dict()
 
+        # Phase 002 base tests: 12 categories (PermissionDisciplineTest is excluded in Phase 003 runner)
         assert report_dict["summary"]["total"] == 12
         assert "category_scores" in report_dict
         assert "results" in report_dict
+
+    def test_eval_result_to_dict_includes_details(self):
+        """EvalResult.to_dict() must serialize details field (Fix 5+6)."""
+        from eval import EvalCategory, EvalMetric, EvalResult, EvalStatus
+        metric = EvalMetric(name="test", category=EvalCategory.SAFETY_DECISIONS, description="test metric")
+        result = EvalResult(
+            metric=metric,
+            status=EvalStatus.PASSED,
+            value=1.0,
+            details={"cases": [{"case_id": "test_0", "pass_fail": True}], "p95_ms": 42.5},
+        )
+        d = result.to_dict()
+        assert "details" in d
+        assert d["details"]["cases"][0]["case_id"] == "test_0"
+        assert d["details"]["p95_ms"] == 42.5
 
     def test_model_info_qwen_7b(self):
         """_get_model_info returns correct info for Qwen 2.5 7B."""
@@ -225,6 +283,7 @@ class TestPhase003MockRun:
         assert _provider_from_string("openai") == CloudProvider.OPENAI
         assert _provider_from_string("together") == CloudProvider.TOGETHER
         assert _provider_from_string("openrouter") == CloudProvider.OPENROUTER
+        assert _provider_from_string("ollama") == CloudProvider.OLLAMA
 
     def test_provider_from_string_invalid(self):
         """_provider_from_string raises on unknown provider."""

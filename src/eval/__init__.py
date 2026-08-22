@@ -129,6 +129,7 @@ class EvalResult:
             "memory_usage_mb": self.memory_usage_mb,
             "cost_estimate": self.cost_estimate,
             "failure_reason": self.failure_reason or self.error or "",
+            "details": self.details if self.details else {},
         }
 
 

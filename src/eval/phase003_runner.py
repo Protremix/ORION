@@ -204,8 +204,20 @@ def run_phase003_benchmark(
         timeout=120,
     )
 
+    # Fix 7: Pin model and capture environment info for reproducibility
+    adapter._pin_model()
+    env_info = adapter.get_environment_info()
+    print(f"  Environment: {env_info}")
+    print(f"  Endpoint: {adapter.api_base}")
+
     # Create eval system (Phase 002 base tests)
+    # Fix 4: Exclude PermissionDisciplineTest — it tests local PermissionChecker, not model behavior.
+    # The LLM-based PermissionScenarioSuite (from phase003_benchmarks) replaces it for model ranking.
     eval_system = create_orion_eval()
+    eval_system._tests = [
+        t for t in eval_system._tests
+        if t.metric.name != "permission_discipline"
+    ]
 
     # Register Phase 003 expanded tests
     phase003_tests = create_phase003_benchmark_tests()
@@ -228,21 +240,24 @@ def run_phase003_benchmark(
     # Get model info
     model_info = _get_model_info(model, provider)
 
-    # Calculate latency p95 — prefer Phase 003 latency benchmark if available
+    # Fix 6: Calculate latency p95 — read from latency benchmark details (now serialized)
     p95_latency_ms = 0
     latency_bench_result = None
+    latency_samples = []
     for r in report_dict.get("results", []):
         if r.get("metric") == "latency_p95":
             latency_bench_result = r
             details = r.get("details", {})
-            p95_latency_ms = details.get("p95_ms", r.get("latency_ms", 0))
+            p95_latency_ms = details.get("p95_ms", 0)
+            latency_samples = details.get("all_latencies_ms", [])
             break
     if not p95_latency_ms:
-        # Fallback: calculate from all test latencies
-        latencies = [r.get("latency_ms", 0) for r in report_dict.get("results", []) if r.get("latency_ms", 0) > 0]
-        latencies_sorted = sorted(latencies)
-        p95_idx = int(len(latencies_sorted) * 0.95) if latencies_sorted else 0
-        p95_latency_ms = latencies_sorted[p95_idx] if latencies_sorted else 0
+        # Fallback: use adapter's per-call latency samples
+        latency_samples = stats.get("latency_samples_ms", [])
+        if latency_samples:
+            sorted_lat = sorted(latency_samples)
+            p95_idx = int(len(sorted_lat) * 0.95)
+            p95_latency_ms = sorted_lat[p95_idx] if p95_idx < len(sorted_lat) else sorted_lat[-1]
     p95_latency_s = p95_latency_ms / 1000.0
 
     # Evaluate mandatory criteria
@@ -327,6 +342,9 @@ def run_phase003_benchmark(
         "total_time_seconds": round(total_time, 2),
         "adapter_stats": stats,
         "model_info": model_info,
+        "environment_info": env_info,
+        "endpoint": adapter.api_base,
+        "latency_samples_ms": latency_samples,
         "mandatory_criteria": criteria_results,
         "optional_criteria": optional_results,
         "overall_verdict": "PASS" if all_passed else "FAIL",
@@ -475,23 +493,70 @@ def main():
     parser.add_argument("--model", type=str, default="gpt-4o-mini",
                         help="Model name (e.g., gpt-4o-mini, Qwen/Qwen2.5-7B-Instruct)")
     parser.add_argument("--provider", type=str, default="openai",
-                        help="API provider: openai, together, openrouter")
+                        help="API provider: openai, together, openrouter, ollama")
     parser.add_argument("--api-key", type=str, default=None,
                         help="API key (or use environment variable)")
     parser.add_argument("--output-dir", type=str, default="docs/evaluation",
                         help="Output directory for reports")
+    parser.add_argument("--runs", type=int, default=1,
+                        help="Number of benchmark runs for statistical robustness (Fix 8)")
     args = parser.parse_args()
 
     provider = _provider_from_string(args.provider)
-    result = run_phase003_benchmark(
-        model=args.model,
-        provider=provider,
-        api_key=args.api_key,
-        output_dir=args.output_dir,
-    )
 
-    # Exit with error code if any mandatory criteria failed
-    if result["overall_verdict"] == "FAIL":
+    # Fix 8: Multi-run support — run N times and report variation
+    all_results = []
+    for run_num in range(1, args.runs + 1):
+        if args.runs > 1:
+            print(f"\n{'='*60}")
+            print(f"RUN {run_num}/{args.runs}")
+            print(f"{'='*60}")
+        result = run_phase003_benchmark(
+            model=args.model,
+            provider=provider,
+            api_key=args.api_key,
+            output_dir=args.output_dir,
+        )
+        all_results.append(result)
+
+    # If multiple runs, compute variation
+    if len(all_results) > 1:
+        verdicts = [r["overall_verdict"] for r in all_results]
+        pass_counts = [sum(1 for c in r["mandatory_criteria"].values() if c["passed"]) for r in all_results]
+        print(f"\n{'='*60}")
+        print(f"MULTI-RUN SUMMARY ({len(all_results)} runs)")
+        print(f"{'='*60}")
+        print(f"  Verdicts: {verdicts}")
+        print(f"  Pass counts: {pass_counts}")
+        print(f"  Mean pass: {sum(pass_counts)/len(pass_counts):.1f}")
+        print(f"  Min/Max: {min(pass_counts)}/{max(pass_counts)}")
+        # Save multi-run summary
+        model_tag = args.model.replace("/", "_").replace(".", "-")
+        summary_path = os.path.join(args.output_dir, f"multi_run_summary_{model_tag}.json")
+        with open(summary_path, "w") as f:
+            json.dump({
+                "model": args.model,
+                "runs": len(all_results),
+                "verdicts": verdicts,
+                "pass_counts": pass_counts,
+                "mean_pass": sum(pass_counts) / len(pass_counts),
+                "min_pass": min(pass_counts),
+                "max_pass": max(pass_counts),
+                "run_details": [
+                    {
+                        "run": i + 1,
+                        "verdict": r["overall_verdict"],
+                        "failed_criteria": r["failed_criteria"],
+                        "adapter_errors": r["adapter_stats"]["errors"],
+                        "p95_latency_s": r.get("latency_samples_ms", []),
+                    }
+                    for i, r in enumerate(all_results)
+                ],
+            }, f, indent=2)
+        print(f"  Summary saved to: {summary_path}")
+
+    # Use last run for exit code
+    if all_results[-1]["overall_verdict"] == "FAIL":
         raise SystemExit(2)
 
 

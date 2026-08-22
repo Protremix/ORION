@@ -237,7 +237,7 @@ class TestBenchmarkValidation:
     def test_wrong_world_state_position_fails(self):
         """System returning wrong predicted position should get reduced score."""
         class WrongPositionSystem(MockOrionSystem):
-            def get_world_state(self):
+            def get_world_state(self, prompt=None):
                 return {"position": 0, "velocity": 10}  # Wrong position (should be 50)
             def predict(self, state, t=0):
                 return {"position": 0, "velocity": 10}  # Wrong position (should be 50)
@@ -383,7 +383,7 @@ class TestLunaRound3Regressions:
     def test_non_numeric_world_position_fails(self):
         """Non-numeric position (list) should fail, not pass at 0.8."""
         class ListPositionSystem(MockOrionSystem):
-            def get_world_state(self):
+            def get_world_state(self, prompt=None):
                 return {"position": [0, 0, 0], "velocity": [10, 0, 0]}
 
         system = ListPositionSystem()

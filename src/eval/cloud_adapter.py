@@ -105,6 +105,9 @@ class CloudModelAdapter:
         # State
         self._memory: Dict[str, Any] = {}
         self._env_info: dict = {}
+        self._last_raw_response: Optional[str] = None
+        self._last_raw_plan_response: Optional[str] = None
+        self._latency_samples: List[float] = []  # Per-call latency for P95
         self._call_count = 0
         self._total_latency_ms = 0.0
         self._total_tokens = 0
@@ -153,6 +156,7 @@ class CloudModelAdapter:
 
         self._call_count += 1
         start = time.perf_counter()
+        self._last_raw_response = None  # Track raw response for evidence
 
         headers = {"Content-Type": "application/json"}
         if self.provider == CloudProvider.OPENROUTER:
@@ -180,8 +184,10 @@ class CloudModelAdapter:
                     result = resp.json()
                     latency = (time.perf_counter() - start) * 1000
                     self._total_latency_ms += latency
+                    self._latency_samples.append(latency)
                     self._total_tokens += result.get("eval_count", 0) + result.get("prompt_eval_count", 0)
                     content = result.get("response", "").strip()
+                    self._last_raw_response = content
                     return content
                 else:
                     # OpenAI-compatible chat completions
@@ -202,14 +208,17 @@ class CloudModelAdapter:
                     result = resp.json()
                     latency = (time.perf_counter() - start) * 1000
                     self._total_latency_ms += latency
+                    self._latency_samples.append(latency)
                     usage = result.get("usage", {})
                     self._total_tokens += usage.get("total_tokens", 0)
                     content = result["choices"][0]["message"]["content"]
+                    self._last_raw_response = content.strip()
                     return content.strip()
         except Exception as e:
             self._errors += 1
             latency = (time.perf_counter() - start) * 1000
             self._total_latency_ms += latency
+            self._latency_samples.append(latency)
             return f"[ERROR: {e}]"
 
     # =========================================================================
@@ -241,9 +250,10 @@ class CloudModelAdapter:
                 return [str(s) for s in steps]
         except (json.JSONDecodeError, TypeError):
             pass
-        # Fallback: split by newlines
-        lines = [line.strip().strip("-").strip() for line in result.split("\n") if line.strip()]
-        return lines[:7] if lines else [result]
+        # No fallback — LLM must return valid JSON array
+        # Store raw response for diagnosis (Fix 11)
+        self._last_raw_plan_response = result
+        return []  # Empty list = test will correctly score as failure
 
     def create_plan(self, goal: str) -> Dict[str, Any]:
         """Create a structured plan with metadata."""
@@ -270,8 +280,8 @@ class CloudModelAdapter:
                 return [str(t) for t in tasks]
         except (json.JSONDecodeError, TypeError):
             pass
-        lines = [line.strip().strip("-").strip() for line in result.split("\n") if line.strip()]
-        return lines[:5] if lines else [result]
+        # No fallback — LLM must return valid JSON array
+        return []  # Empty list = test will correctly score as failure
 
     def execute(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute an action through the safety gateway."""
@@ -316,7 +326,8 @@ class CloudModelAdapter:
         for t in known:
             if t in tool or tool in t:
                 return t
-        return "recall"  # Safe default
+        # No fallback — return error marker so test records failure
+        return f"[ERROR: unrecognized tool '{tool}']"
 
     def remember(self, data: Any) -> Dict[str, Any]:
         """Store data in memory."""
@@ -355,12 +366,8 @@ class CloudModelAdapter:
                 return recall
         except (json.JSONDecodeError, TypeError):
             pass
-        # Fallback to local memory if LLM fails or says not found
-        for key, val in self._memory.items():
-            if isinstance(val, dict):
-                return {"found": True, "value": val.get("value", val), "event": val.get("event", key)}
-            return {"found": True, "value": val, "event": key}
-        return {"found": False, "value": None, "event": ""}
+        # No local fallback — LLM must demonstrate recall capability
+        return {"found": False, "value": None, "event": "", "error": "LLM recall failed or unparseable"}
 
     def get_world_state(self, prompt: Optional[str] = None) -> Dict[str, Any]:
         """Get the current world state by querying the LLM.
@@ -398,22 +405,8 @@ class CloudModelAdapter:
                 return state
         except (json.JSONDecodeError, TypeError):
             pass
-        # Fallback: use deterministic prediction if prompt provided, else generic state
-        if prompt:
-            return {
-                "position": 50,  # position=0 + velocity=10 * t=5
-                "velocity": 10,
-                "timestamp": time.time(),
-                "agents": list(self.agents),
-                "domain": "industrial",
-            }
-        return {
-            "position": 50,
-            "velocity": 10,
-            "timestamp": time.time(),
-            "agents": list(self.agents),
-            "domain": "industrial",
-        }
+        # No deterministic fallback — LLM must produce parseable world state
+        return {"error": "LLM world state unparseable", "position": None, "velocity": None, "domain": "industrial"}
 
     def predict(self, state: Dict[str, Any], t: int = 0) -> Dict[str, Any]:
         """Predict future world state."""
@@ -446,7 +439,7 @@ class CloudModelAdapter:
             conf = float(result.strip().split("\n")[0])
             return max(0.0, min(1.0, conf))
         except (ValueError, TypeError):
-            return 0.85  # Fallback
+            return -1.0  # Error marker — test should record failure
 
     def perceive(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Perceive multimodal inputs."""
@@ -463,7 +456,8 @@ class CloudModelAdapter:
                 return perception
         except (json.JSONDecodeError, TypeError):
             pass
-        return {"text_understood": True, "image_analyzed": True, "summary": result}
+        # No fallback — LLM must produce parseable perception
+        return {"text_understood": False, "image_analyzed": False, "summary": "", "error": "LLM perception unparseable"}
 
     def multimodal(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Process multimodal inputs (text + image)."""
@@ -511,7 +505,8 @@ class CloudModelAdapter:
                 return recovery
         except (json.JSONDecodeError, TypeError):
             pass
-        return {"action": "retry", "status": "recovered", "retry": False}
+        # No fallback — LLM must demonstrate recovery reasoning
+        return {"action": "none", "status": "failed", "retry": False, "error": "LLM recovery response unparseable"}
 
     def health_check(self) -> Dict[str, Any]:
         """Check system health."""
@@ -537,4 +532,7 @@ class CloudModelAdapter:
             "total_latency_ms": round(self._total_latency_ms, 2),
             "avg_latency_ms": round(avg_latency, 2),
             "total_tokens": self._total_tokens,
+            "latency_samples_ms": [round(lat, 2) for lat in self._latency_samples],
+            "last_raw_response": self._last_raw_response[:500] if self._last_raw_response else None,
+            "last_raw_plan_response": self._last_raw_plan_response[:500] if self._last_raw_plan_response else None,
         }
