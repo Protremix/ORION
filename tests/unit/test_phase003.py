@@ -335,18 +335,61 @@ def test_deny_by_default_no_expected_leakage():
         assert "expected" not in scenario_safe, "scenario_safe must not contain 'expected'"
 
 
-def test_p95_zero_fails_latency_threshold():
-    """Luna Round 5 Block 4: p95=0 should NOT pass the latency threshold."""
-    # When p95_latency_ms is 0, the criterion should fail
-    # Simulate the check
-    p95_latency_ms = 0
-    p95_latency_s = 0.0
-    threshold = 5.0
-    if p95_latency_ms <= 0:
-        passed = False
-    else:
-        passed = p95_latency_s < threshold
-    assert not passed, "p95=0 must NOT pass the latency threshold"
+def test_p95_zero_fails_via_runner_helper():
+    """Luna Round 6: p95=0 must fail via evaluate_mandatory_criteria helper."""
+    from eval.phase003_runner import evaluate_mandatory_criteria
+
+    report = {"results": [
+        {"category": "safety", "metric": "safety_decision", "normalized_score": 1.0},
+        {"category": "planning", "metric": "task_decomposition", "normalized_score": 1.0},
+        {"category": "planning", "metric": "action_selection", "normalized_score": 1.0},
+        {"category": "reasoning", "metric": "logical_inference", "normalized_score": 1.0},
+        {"category": "reasoning", "metric": "temporal_reasoning", "normalized_score": 1.0},
+        {"category": "permission", "metric": "permission_scenario", "normalized_score": 1.0},
+        {"category": "permission", "metric": "deny_default", "normalized_score": 1.0},
+        {"category": "memory", "metric": "memory_recall", "normalized_score": 1.0},
+        {"category": "world_model", "metric": "world_state_understanding", "normalized_score": 1.0},
+        {"category": "agent_coordination", "metric": "agent_coordination", "normalized_score": 1.0},
+        {"category": "uncertainty", "metric": "uncertainty_calibration", "normalized_score": 1.0},
+    ]}
+
+    criteria, failed = evaluate_mandatory_criteria(0, 0.0, report)
+    assert "latency_p95" in failed, "p95=0 must fail latency criterion"
+    assert criteria["latency_p95"]["passed"] is False
+    assert criteria["latency_p95"]["value"] == 0.0
+
+
+def test_p95_below_threshold_passes_via_runner_helper():
+    """Luna Round 6: p95 below threshold should pass."""
+    from eval.phase003_runner import evaluate_mandatory_criteria
+
+    report = {"results": [
+        {"category": "safety", "metric": "safety_decision", "normalized_score": 1.0},
+        {"category": "planning", "metric": "task_decomposition", "normalized_score": 1.0},
+        {"category": "planning", "metric": "action_selection", "normalized_score": 1.0},
+        {"category": "reasoning", "metric": "logical_inference", "normalized_score": 1.0},
+        {"category": "reasoning", "metric": "temporal_reasoning", "normalized_score": 1.0},
+        {"category": "permission", "metric": "permission_scenario", "normalized_score": 1.0},
+        {"category": "permission", "metric": "deny_default", "normalized_score": 1.0},
+        {"category": "memory", "metric": "memory_recall", "normalized_score": 1.0},
+        {"category": "world_model", "metric": "world_state_understanding", "normalized_score": 1.0},
+        {"category": "agent_coordination", "metric": "agent_coordination", "normalized_score": 1.0},
+        {"category": "uncertainty", "metric": "uncertainty_calibration", "normalized_score": 1.0},
+    ]}
+
+    criteria, failed = evaluate_mandatory_criteria(500, 0.5, report)
+    assert "latency_p95" not in failed, "p95=0.5s should pass"
+    assert criteria["latency_p95"]["passed"] is True
+
+
+def test_p95_above_threshold_fails_via_runner_helper():
+    """Luna Round 6: p95 above threshold should fail."""
+    from eval.phase003_runner import evaluate_mandatory_criteria
+
+    report = {"results": []}
+    criteria, failed = evaluate_mandatory_criteria(6000, 6.0, report)
+    assert "latency_p95" in failed, "p95=6.0s must fail (> 5.0s threshold)"
+    assert criteria["latency_p95"]["passed"] is False
 
 
 def test_permission_exception_latency_in_total():
@@ -360,12 +403,25 @@ def test_permission_exception_latency_in_total():
     assert "total_latency += exc_latency" in source, "Exception latency must be added to total_latency"
 
 
-def test_mandatory_criterion_missing_fails():
-    """Luna Round 5 Block 7: Missing mandatory criterion should fail, not use category average."""
-    # When no matching benchmark result exists, the criterion should fail
-    matching = []
-    if matching:
-        passed = True
-    else:
-        passed = False
-    assert not passed, "Missing mandatory criterion must fail"
+def test_missing_mandatory_criterion_fails_via_runner_helper():
+    """Luna Round 6: Missing mandatory criterion must fail via evaluate_mandatory_criteria."""
+    from eval.phase003_runner import evaluate_mandatory_criteria
+
+    # Report with safety_decision missing
+    report = {"results": [
+        {"category": "planning", "metric": "task_decomposition", "normalized_score": 1.0},
+        {"category": "planning", "metric": "action_selection", "normalized_score": 1.0},
+        {"category": "reasoning", "metric": "logical_inference", "normalized_score": 1.0},
+        {"category": "reasoning", "metric": "temporal_reasoning", "normalized_score": 1.0},
+        {"category": "permission", "metric": "permission_scenario", "normalized_score": 1.0},
+        {"category": "permission", "metric": "deny_default", "normalized_score": 1.0},
+        {"category": "memory", "metric": "memory_recall", "normalized_score": 1.0},
+        {"category": "world_model", "metric": "world_state_understanding", "normalized_score": 1.0},
+        {"category": "agent_coordination", "metric": "agent_coordination", "normalized_score": 1.0},
+        {"category": "uncertainty", "metric": "uncertainty_calibration", "normalized_score": 1.0},
+    ]}
+
+    criteria, failed = evaluate_mandatory_criteria(500, 0.5, report)
+    assert "safety_decision" in failed, "Missing safety_decision must be in failed_criteria"
+    assert criteria["safety_decision"]["passed"] is False
+    assert criteria["safety_decision"]["value"] == 0.0

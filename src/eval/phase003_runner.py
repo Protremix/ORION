@@ -174,6 +174,77 @@ def _get_model_info(model: str, provider: CloudProvider) -> Dict[str, Any]:
     return info
 
 
+
+
+def evaluate_mandatory_criteria(
+    p95_latency_ms: float,
+    p95_latency_s: float,
+    report_dict: dict,
+) -> tuple[dict, list[str]]:
+    """Evaluate mandatory criteria against benchmark results.
+
+    Extracted for testability (Luna Round 6 requirement).
+
+    Args:
+        p95_latency_ms: P95 latency in milliseconds (0 = missing/unavailable).
+        p95_latency_s: P95 latency in seconds.
+        report_dict: The benchmark report dictionary with 'results' list.
+
+    Returns:
+        Tuple of (criteria_results dict, failed_criteria list).
+    """
+    criteria_results = {}
+
+    for criterion_id, criterion in MANDATORY_CRITERIA.items():
+        if criterion.get("is_latency"):
+            value = p95_latency_s
+            if p95_latency_ms <= 0:
+                passed = False
+                value = 0.0
+            else:
+                passed = value < criterion["threshold"]
+            criteria_results[criterion_id] = {
+                "description": criterion["description"],
+                "value": round(value, 3),
+                "threshold": criterion["threshold"],
+                "passed": passed,
+                "category": "latency",
+            }
+        else:
+            category = criterion["category"]
+            metric_name = criterion["metric_name"]
+            matching = [
+                r for r in report_dict.get("results", [])
+                if r.get("category") == category.value
+                and metric_name in r.get("metric", "").lower()
+            ]
+            if matching:
+                value = matching[0].get("normalized_score", 0.0)
+                passed = value >= criterion["threshold"]
+                criteria_results[criterion_id] = {
+                    "description": criterion["description"],
+                    "value": round(value, 4),
+                    "threshold": criterion["threshold"],
+                    "passed": passed,
+                    "category": category.value,
+                    "metric": matching[0].get("metric", ""),
+                }
+            else:
+                cat_score = 0.0
+                passed = False
+                criteria_results[criterion_id] = {
+                    "description": criterion["description"],
+                    "value": round(cat_score, 4),
+                    "threshold": criterion["threshold"],
+                    "passed": passed,
+                    "category": category.value,
+                    "metric": f"(missing for {category.value})",
+                }
+
+    failed_criteria = [cid for cid, cr in criteria_results.items() if not cr["passed"]]
+    return criteria_results, failed_criteria
+
+
 def run_phase003_benchmark(
     model: str,
     provider: CloudProvider,
@@ -258,63 +329,12 @@ def run_phase003_benchmark(
         p95_latency_ms = 0  # Will trigger the p95 <= 0 failure check below
     p95_latency_s = p95_latency_ms / 1000.0
 
-    # Evaluate mandatory criteria
+    # Evaluate mandatory criteria (using extracted helper for testability)
     print("Evaluating mandatory criteria...")
-    criteria_results = {}
-
-    for criterion_id, criterion in MANDATORY_CRITERIA.items():
-        if criterion.get("is_latency"):
-            # Latency criterion
-            value = p95_latency_s
-            # Missing latency data (0.0) should NOT pass — treat as unavailable (Luna Round 5 Block 4)
-            if p95_latency_ms <= 0:
-                passed = False
-                value = 0.0
-            else:
-                passed = value < criterion["threshold"]
-            criteria_results[criterion_id] = {
-                "description": criterion["description"],
-                "value": round(value, 3),
-                "threshold": criterion["threshold"],
-                "passed": passed,
-                "category": "latency",
-            }
-        else:
-            # Score-based criterion — find matching benchmark result
-            category = criterion["category"]
-            metric_name = criterion["metric_name"]
-            matching = [
-                r for r in report_dict.get("results", [])
-                if r.get("category") == category.value and metric_name in r.get("metric", "").lower()
-            ]
-            if matching:
-                # Use the first matching result's normalized score
-                value = matching[0].get("normalized_score", 0.0)
-                passed = value >= criterion["threshold"]
-                criteria_results[criterion_id] = {
-                    "description": criterion["description"],
-                    "value": round(value, 4),
-                    "threshold": criterion["threshold"],
-                    "passed": passed,
-                    "category": category.value,
-                    "metric": matching[0].get("metric", ""),
-                }
-            else:
-                # MANDATORY criterion missing — must FAIL (Luna Round 5 Block 7)
-                cat_score = 0.0
-                passed = False
-                criteria_results[criterion_id] = {
-                    "description": criterion["description"],
-                    "value": round(cat_score, 4),
-                    "threshold": criterion["threshold"],
-                    "passed": passed,
-                    "category": category.value,
-                    "metric": f"(category avg for {category.value})",
-                }
-
-    # Calculate overall pass/fail
+    criteria_results, failed_criteria = evaluate_mandatory_criteria(
+        p95_latency_ms, p95_latency_s, report_dict
+    )
     all_passed = all(cr["passed"] for cr in criteria_results.values())
-    failed_criteria = [cid for cid, cr in criteria_results.items() if not cr["passed"]]
 
     # Optional criteria
     optional_results = {}
