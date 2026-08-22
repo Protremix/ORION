@@ -1,6 +1,9 @@
 """
-ORION Core Supervisor — Phase 004. License: Apache 2.0
+ORION Core Supervisor — Phase 004/005. License: Apache 2.0
 Lifecycle: GOAL -> PLAN -> EXECUTE -> OBSERVE -> EVALUATE -> CORRECT -> REMEMBER
+
+Phase 005: Memory integration via MemoryIntegrationMixin.
+Luna R1 #7: Memory is optional — CoreSupervisor works without it.
 """
 from __future__ import annotations
 
@@ -13,16 +16,19 @@ from src.core.error_recovery import ErrorRecovery, RecoveryAction
 from src.core.execution_engine import ExecutionEngine
 from src.core.model_gateway import ModelGateway
 from src.core.policy_engine import PolicyDecision, PolicyEngine
+from src.core.supervisor_memory_integration import MemoryIntegrationMixin
 from src.core.task_engine import StepStatus, Task, TaskEngine, TaskPriority, TaskStatus, TaskStep
 from src.core.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-class CoreSupervisor:
+
+class CoreSupervisor(MemoryIntegrationMixin):
     def __init__(self, task_engine: TaskEngine, tool_registry: ToolRegistry,
                  policy_engine: PolicyEngine, execution_engine: ExecutionEngine,
                  model_gateway: ModelGateway, audit_logger: AuditLogger,
-                 error_recovery: ErrorRecovery) -> None:
+                 error_recovery: ErrorRecovery,
+                 memory_manager: Optional[Any] = None) -> None:
         self._task_engine = task_engine
         self._tool_registry = tool_registry
         self._policy_engine = policy_engine
@@ -31,6 +37,8 @@ class CoreSupervisor:
         self._audit = audit_logger
         self._recovery = error_recovery
         self._step_timeout: float = 120.0
+        # Phase 005: Optional memory integration
+        self._init_memory(memory_manager)
 
     def run(self, goal: str, context: Optional[Dict[str, Any]] = None,
             model: Optional[str] = None) -> Task:
@@ -39,6 +47,14 @@ class CoreSupervisor:
             priority=TaskPriority.NORMAL, model=model, context=ctx)
         self._audit.log(AuditEventType.TASK_CREATED, task.correlation_id,
             {"task_id": task.id, "goal": goal, "model": model})
+
+        # Phase 005: Pre-planning memory recall
+        memory_context = self._get_memory_context(
+            goal=goal,
+            caller_context=ctx,
+            correlation_id=task.correlation_id,
+        )
+
         # PLAN
         self._task_engine.update_status(task.id, TaskStatus.PLANNING)
         self._audit.log(AuditEventType.STATE_TRANSITION, task.correlation_id,
@@ -54,6 +70,12 @@ class CoreSupervisor:
                 {"task_id": task.id, "error": plan_response.error or "No plan generated"})
             self._task_engine.update_status(task.id, TaskStatus.FAILED)
             task.failure_reason = plan_response.error or "No plan generated"
+            # Phase 005: Remember planning failure
+            self._remember_outcome(
+                goal=goal, task_id=task.id, success=False,
+                error=plan_response.error or "Planning failed",
+                correlation_id=task.correlation_id,
+            )
             return task
         plan = plan_response.parsed
         self._task_engine.set_plan(task.id, plan)
@@ -64,10 +86,8 @@ class CoreSupervisor:
             deps = []
             for d in step_data.get("dependencies", []):
                 try:
-
                     deps.append(f"{task.id}_step_{int(d)+1}")
                 except (ValueError, TypeError):
-
                     pass
             step = TaskStep(id=f"{task.id}_step_{i+1}",
                 description=step_data.get("description", ""),
@@ -107,12 +127,29 @@ class CoreSupervisor:
                 self._task_engine.update_status(task.id, TaskStatus.COMPLETED)
                 self._audit.log(AuditEventType.TASK_COMPLETED, task.correlation_id,
                     {"task_id": task.id, "duration": task.duration})
+                # Phase 005: Remember successful completion
+                self._remember_outcome(
+                    goal=goal, task_id=task.id, success=True,
+                    observations={"steps_completed": len(task.steps)},
+                    correlation_id=task.correlation_id,
+                )
             elif any(s.status == StepStatus.FAILED for s in task.steps):
                 self._task_engine.update_status(task.id, TaskStatus.FAILED)
                 self._audit.log(AuditEventType.TASK_FAILED, task.correlation_id,
                     {"task_id": task.id, "failed_steps": task.failed_steps})
+                # Phase 005: Remember execution failure
+                self._remember_outcome(
+                    goal=goal, task_id=task.id, success=False,
+                    error=f"Failed steps: {task.failed_steps}",
+                    observations={"failed_step_count": task.failed_steps},
+                    correlation_id=task.correlation_id,
+                )
             else:
                 self._task_engine.update_status(task.id, TaskStatus.COMPLETED)
+                self._remember_outcome(
+                    goal=goal, task_id=task.id, success=True,
+                    correlation_id=task.correlation_id,
+                )
         return self._task_engine.get_task(task.id) or task
 
     def _execute_step(self, task: Task, step: Any) -> None:
