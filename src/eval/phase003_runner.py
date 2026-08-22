@@ -252,12 +252,10 @@ def run_phase003_benchmark(
             latency_samples = details.get("all_latencies_ms", [])
             break
     if not p95_latency_ms:
-        # Fallback: use adapter's per-call latency samples
-        latency_samples = stats.get("latency_samples_ms", [])
-        if latency_samples:
-            sorted_lat = sorted(latency_samples)
-            p95_idx = int(len(sorted_lat) * 0.95)
-            p95_latency_ms = sorted_lat[p95_idx] if p95_idx < len(sorted_lat) else sorted_lat[-1]
+        # If dedicated latency benchmark is missing/zero, do NOT substitute adapter samples (Luna Round 6 Block 3)
+        # Missing latency data must fail the criterion, not pass with unrelated samples
+        latency_samples = []
+        p95_latency_ms = 0  # Will trigger the p95 <= 0 failure check below
     p95_latency_s = p95_latency_ms / 1000.0
 
     # Evaluate mandatory criteria
