@@ -720,10 +720,14 @@ CURRENT STATE
 
 Current phase:
 
-PHASE 001 — REPOSITORY AUDIT & RECOVERY
+PHASE 004 — ORION CORE (IN PROGRESS)
 
-Do not start Phase 002 until Phase 001 acceptance criteria
-are satisfied.
+Phase 001 — Repository Audit: VERIFIED
+Phase 002 — Evaluation System: VERIFIED
+Phase 003 — Model Selection: VERIFIED (Luna Round 7, Commit e7f855b)
+
+Do not ask Founder whether to continue.
+Work autonomously.
 
 Do not ask Founder whether to continue.
 
