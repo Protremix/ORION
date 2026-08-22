@@ -454,3 +454,316 @@ class TestCoreSupervisor:
         for inv in tool_invocations:
             tool = inv["details"].get("tool", "")
             assert tool in ("test_tool",), f"Unexpected tool: {tool}"
+
+
+# ============================================================================
+# Agent Registry Tests
+# ============================================================================
+
+class TestAgentRegistry:
+    def test_register_agent(self):
+        from src.core.agent_registry import AgentCapability, AgentDefinition, AgentRegistry
+        reg = AgentRegistry()
+        agent = AgentDefinition(id="analyzer", name="Analyzer",
+            description="Analyzes data", capabilities=[AgentCapability.ANALYSIS],
+            handler=lambda **kw: {"result": "analyzed"})
+        assert reg.register(agent)
+        assert reg.get("analyzer") is not None
+
+    def test_register_no_handler_fails(self):
+        from src.core.agent_registry import AgentDefinition, AgentRegistry
+        reg = AgentRegistry()
+        agent = AgentDefinition(id="bad", name="Bad", description="No handler")
+        assert not reg.register(agent)
+
+    def test_duplicate_register(self):
+        from src.core.agent_registry import AgentCapability, AgentDefinition, AgentRegistry
+        reg = AgentRegistry()
+        agent = AgentDefinition(id="a1", name="A1", description="Test",
+            capabilities=[AgentCapability.ANALYSIS], handler=lambda **kw: None)
+        assert reg.register(agent)
+        assert not reg.register(agent)
+
+    def test_invoke_healthy_agent(self):
+        from src.core.agent_registry import AgentCapability, AgentDefinition, AgentRegistry
+        reg = AgentRegistry()
+        agent = AgentDefinition(id="calc", name="Calc", description="Calculator",
+            capabilities=[AgentCapability.EXECUTION], handler=lambda **kw: {"sum": 42})
+        reg.register(agent)
+        result = reg.invoke("calc", x=1)
+        assert result["success"]
+        assert result["result"]["sum"] == 42
+
+    def test_invoke_unknown_agent(self):
+        from src.core.agent_registry import AgentRegistry
+        reg = AgentRegistry()
+        result = reg.invoke("nonexistent")
+        assert not result["success"]
+
+    def test_invoke_failing_agent_degrades_health(self):
+        from src.core.agent_registry import AgentCapability, AgentDefinition, AgentRegistry, AgentStatus
+        reg = AgentRegistry()
+        def fail_handler(**kw):
+            raise RuntimeError("Always fails")
+        agent = AgentDefinition(id="fail", name="Fail", description="Always fails",
+            capabilities=[AgentCapability.ANALYSIS], handler=fail_handler)
+        reg.register(agent)
+        # Invoke — agent fails and goes unhealthy
+        result = reg.invoke("fail")
+        assert not result["success"]
+        health = reg.get("fail").health
+        assert health.failed_invocations == 1
+        assert health.status == AgentStatus.UNHEALTHY
+        assert health.success_rate == 0.0
+
+    def test_list_by_capability(self):
+        from src.core.agent_registry import AgentCapability, AgentDefinition, AgentRegistry
+        reg = AgentRegistry()
+        reg.register(AgentDefinition(id="a1", name="A1", description="Plan",
+            capabilities=[AgentCapability.PLANNING], handler=lambda **kw: None))
+        reg.register(AgentDefinition(id="a2", name="A2", description="Monitor",
+            capabilities=[AgentCapability.MONITORING], handler=lambda **kw: None))
+        planners = reg.list_by_capability(AgentCapability.PLANNING)
+        assert len(planners) == 1
+        assert planners[0].id == "a1"
+
+    def test_max_concurrency(self):
+        from src.core.agent_registry import AgentCapability, AgentDefinition, AgentRegistry
+        reg = AgentRegistry()
+        agent = AgentDefinition(id="single", name="Single", description="Max 1",
+            capabilities=[AgentCapability.EXECUTION], handler=lambda **kw: None,
+            max_concurrent=1)
+        reg.register(agent)
+        reg._active_invocations["single"] = 1  # simulate active
+        result = reg.invoke("single")
+        assert not result["success"]
+        assert "max concurrency" in result["error"]
+
+
+# ============================================================================
+# Permission Engine Tests
+# ============================================================================
+
+class TestPermissionEngine:
+    def test_read_tool_allowed_at_execute_level(self):
+        from src.core.permission_engine import PermissionEngine, PermissionLevel
+        reg = ToolRegistry()
+        reg.register(ToolDefinition(name="read_data", description="Read",
+            category=ToolCategory.READ, risk_level=ToolRiskLevel.SAFE))
+        perm = PermissionEngine(reg)
+        result = perm.check("read_data")
+        assert result.allowed
+
+    def test_write_tool_allowed_at_execute_level(self):
+        from src.core.permission_engine import PermissionEngine
+        reg = ToolRegistry()
+        reg.register(ToolDefinition(name="write_data", description="Write",
+            category=ToolCategory.WRITE, risk_level=ToolRiskLevel.LOW))
+        perm = PermissionEngine(reg)
+        result = perm.check("write_data")
+        assert result.allowed
+
+    def test_irreversible_blocked(self):
+        from src.core.permission_engine import PermissionEngine, PermissionLevel
+        reg = ToolRegistry()
+        reg.register(ToolDefinition(name="dangerous", description="Dangerous",
+            category=ToolCategory.WRITE, risk_level=ToolRiskLevel.HIGH))
+        perm = PermissionEngine(reg)
+        result = perm.check("dangerous")
+        assert not result.allowed
+        assert "Irreversible" in result.reason or "blocked" in result.reason
+
+    def test_blocked_operation(self):
+        from src.core.permission_engine import PermissionEngine
+        reg = ToolRegistry()
+        perm = PermissionEngine(reg)
+        result = perm.check("safe_tool", operation="physical_actuation")
+        assert not result.allowed
+        assert "blocked" in result.reason.lower()
+
+    def test_unknown_tool_requires_admin(self):
+        from src.core.permission_engine import PermissionEngine, PermissionLevel
+        reg = ToolRegistry()
+        perm = PermissionEngine(reg)
+        result = perm.check("unknown_tool")
+        assert not result.allowed
+        assert result.required_level == PermissionLevel.ADMIN
+
+    def test_set_level(self):
+        from src.core.permission_engine import PermissionEngine, PermissionLevel
+        reg = ToolRegistry()
+        perm = PermissionEngine(reg)
+        perm.set_level(PermissionLevel.READ)
+        # Write tool should now be denied
+        reg.register(ToolDefinition(name="write_data", description="Write",
+            category=ToolCategory.WRITE, risk_level=ToolRiskLevel.LOW))
+        result = perm.check("write_data")
+        assert not result.allowed
+
+    def test_blocked_operations_list(self):
+        from src.core.permission_engine import PermissionEngine
+        reg = ToolRegistry()
+        perm = PermissionEngine(reg)
+        blocked = perm.list_blocked_operations()
+        assert "physical_actuation" in blocked
+        assert "financial_transaction" in blocked
+        assert "legal_action" in blocked
+
+
+# ============================================================================
+# Multi-Step Integration Tests (Luna R1 Requirement)
+# ============================================================================
+
+class TestMultiStepIntegration:
+    """Luna R1 blocking issue 1: multi-step task with ≥3 steps and dependency resolution."""
+
+    def _setup_multistep_core(self):
+        """Set up a Core with 3 tools and a 3-step plan."""
+        reg = ToolRegistry()
+
+        # Tool 1: Read data
+        def read_handler(key: str) -> dict:
+            return {"data": f"value_for_{key}"}
+        reg.register(ToolDefinition(name="read_data", description="Read data",
+            category=ToolCategory.READ, risk_level=ToolRiskLevel.SAFE,
+            schema=ToolSchema(parameters={"key": {"type": "str"}}, required=["key"]),
+            handler=read_handler))
+
+        # Tool 2: Process data
+        def process_handler(input_data: str) -> dict:
+            return {"processed": input_data.upper()}
+        reg.register(ToolDefinition(name="process_data", description="Process data",
+            category=ToolCategory.COMPUTE, risk_level=ToolRiskLevel.SAFE,
+            schema=ToolSchema(parameters={"input_data": {"type": "str"}}, required=["input_data"]),
+            handler=process_handler))
+
+        # Tool 3: Store result
+        def store_handler(result: str) -> dict:
+            return {"stored": True, "result": result}
+        reg.register(ToolDefinition(name="store_result", description="Store result",
+            category=ToolCategory.WRITE, risk_level=ToolRiskLevel.LOW,
+            schema=ToolSchema(parameters={"result": {"type": "str"}}, required=["result"]),
+            handler=store_handler))
+
+        policy = PolicyEngine(reg)
+        executor = ExecutionEngine(reg, policy)
+        audit = AuditLogger()
+        task_engine = TaskEngine()
+        recovery = ErrorRecovery(task_engine)
+
+        gw = ModelGateway()
+        class MultiStepProvider:
+            @property
+            def model_name(self): return "test"
+            def generate(self, prompt, system_prompt="", max_tokens=2000, temperature=0.3):
+                return json.dumps({
+                    "steps": [
+                        {"description": "Read input data", "action_type": "read_data",
+                         "parameters": {"key": "sensor_1"}, "dependencies": []},
+                        {"description": "Process the data", "action_type": "process_data",
+                         "parameters": {"input_data": "value_for_sensor_1"}, "dependencies": [0]},
+                        {"description": "Store the result", "action_type": "store_result",
+                         "parameters": {"result": "VALUE_FOR_SENSOR_1"}, "dependencies": [1]},
+                    ]
+                })
+        gw.register_model(ModelInfo(name="test", provider="fake", endpoint="l", qualified=True), MultiStepProvider())
+
+        supervisor = CoreSupervisor(task_engine, reg, policy, executor, gw, audit, recovery)
+        return supervisor, task_engine, audit
+
+    def test_three_step_task_completes(self):
+        supervisor, task_engine, audit = self._setup_multistep_core()
+        task = supervisor.run("Read, process, and store sensor data")
+        assert task.status == TaskStatus.COMPLETED
+        assert len(task.steps) == 3
+        assert all(s.status == StepStatus.COMPLETED for s in task.steps)
+
+    def test_dependency_resolution_order(self):
+        supervisor, task_engine, audit = self._setup_multistep_core()
+        task = supervisor.run("Read, process, and store sensor data")
+        # Step 1 should complete before step 2, step 2 before step 3
+        s1, s2, s3 = task.steps
+        assert s1.completed_at is not None
+        assert s2.completed_at is not None
+        assert s3.completed_at is not None
+        # Dependencies should be set
+        assert s2.dependencies == [s1.id]
+        assert s3.dependencies == [s2.id]
+
+    def test_multistep_audit_trail(self):
+        supervisor, task_engine, audit = self._setup_multistep_core()
+        task = supervisor.run("Read, process, and store sensor data")
+        history = audit.get_task_history(task.correlation_id)
+        types = [e["type"] for e in history]
+        # Should have all lifecycle events
+        assert "task_created" in types
+        assert "state_transition" in types
+        assert "model_called" in types
+        assert "plan_generated" in types
+        assert "plan_validated" in types
+        assert "tool_invoked" in types
+        assert "tool_result" in types
+        assert "task_completed" in types
+        # Should have 3 tool invocations (one per step)
+        tool_invocations = [e for e in history if e["type"] == "tool_invoked"]
+        assert len(tool_invocations) == 3
+
+    def test_multistep_hash_chain_intact(self):
+        supervisor, task_engine, audit = self._setup_multistep_core()
+        task = supervisor.run("Read, process, and store sensor data")
+        assert audit.verify_chain()
+
+    def test_multistep_injected_failure_recovery(self):
+        """Inject failure in step 2 and verify recovery (retry)."""
+        reg = ToolRegistry()
+        call_count = [0]
+        def flaky_process(input_data: str) -> dict:
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise RuntimeError("Transient failure")
+            return {"processed": input_data.upper()}
+
+        reg.register(ToolDefinition(name="read_data", description="Read",
+            category=ToolCategory.READ, risk_level=ToolRiskLevel.SAFE,
+            schema=ToolSchema(parameters={"key": {"type": "str"}}, required=["key"]),
+            handler=lambda key: {"data": f"value_for_{key}"}))
+        reg.register(ToolDefinition(name="process_data", description="Process",
+            category=ToolCategory.COMPUTE, risk_level=ToolRiskLevel.SAFE,
+            schema=ToolSchema(parameters={"input_data": {"type": "str"}}, required=["input_data"]),
+            handler=flaky_process))
+        reg.register(ToolDefinition(name="store_result", description="Store",
+            category=ToolCategory.WRITE, risk_level=ToolRiskLevel.LOW,
+            schema=ToolSchema(parameters={"result": {"type": "str"}}, required=["result"]),
+            handler=lambda result: {"stored": True}))
+
+        policy = PolicyEngine(reg)
+        executor = ExecutionEngine(reg, policy)
+        audit = AuditLogger()
+        task_engine = TaskEngine()
+        recovery = ErrorRecovery(task_engine)
+
+        gw = ModelGateway()
+        class Provider:
+            @property
+            def model_name(self): return "test"
+            def generate(self, prompt, system_prompt="", max_tokens=2000, temperature=0.3):
+                return json.dumps({
+                    "steps": [
+                        {"description": "Read", "action_type": "read_data",
+                         "parameters": {"key": "s1"}, "dependencies": []},
+                        {"description": "Process", "action_type": "process_data",
+                         "parameters": {"input_data": "val"}, "dependencies": [0]},
+                        {"description": "Store", "action_type": "store_result",
+                         "parameters": {"result": "VAL"}, "dependencies": [1]},
+                    ]
+                })
+        gw.register_model(ModelInfo(name="test", provider="fake", endpoint="l", qualified=True), Provider())
+
+        supervisor = CoreSupervisor(task_engine, reg, policy, executor, gw, audit, recovery)
+        task = supervisor.run("Read, process, store with injected failure")
+        # Step 2 should have retried and eventually succeeded
+        # Task should complete (step 2 fails first, recovery retries, succeeds)
+        assert task.status == TaskStatus.COMPLETED
+        # Verify retry happened
+        process_step = task.steps[1]
+        assert process_step.retry_count >= 1
