@@ -5,237 +5,184 @@
 **Phase:** Phase 003 (Model Selection)
 **Commit:** 8e3b22a
 
-## Final Review
+## FINAL VERDICT: REQUIRES_CHANGES
 
-### 1. Round 4 test coverage
+The supplied tests and raw JSON are internally suggestive, but they do not establish a valid Round 4 result. The critical SafetyScenarioSuite answer leakage invalidates the safety evaluation, and the Round 4 latency/permission fixes are not regression-tested.
 
-**No, the supplied tests do not adequately cover the Round 4 fixes.**
+## 1. Round 4 test coverage
 
-#### P95 in `final_report`
+### p95 latency in `final_report`
 
-`test_eval_result_to_dict_includes_details` verifies only that an arbitrary `details["p95_ms"]` field survives serialization:
+**Not adequately covered.**
 
-```python
-details={"cases": [...], "p95_ms": 42.5}
-```
+`test_eval_result_to_dict_includes_details` verifies that an `EvalResult` can serialize a `details["p95_ms"]` field, but it does not verify that:
 
-It does **not** verify:
+- the Phase 003 runner computes p95 correctly;
+- p95 is present in the actual `final_report`;
+- `p95_latency_ms`, `p95_latency_s`, and latency samples agree;
+- missing latency data fails safely rather than becoming zero;
+- the final report uses the intended latency sample population.
 
-- that the runner calculates p95 correctly;
-- that p95 is copied into the final report;
-- that `p95_latency_ms` and `p95_latency_s` agree;
-- that the samples belong only to the latency benchmark;
-- that missing p95 data fails safely;
-- that the final report contains the required p95 field.
+The existing test only proves generic serialization, not the Round 4 runner behavior.
 
-There is no test for the `phase003_runner` report-generation path.
+### Permission latency on failure paths
 
-#### Permission latency on failure paths
+**Not covered.**
 
-The supplied tests contain no permission-suite tests for:
+There are no tests for:
 
-- `_call_llm` exceptions;
-- JSON parsing failures;
-- aggregate latency accounting;
-- no-LLM behavior;
-- adapter statistics after permission calls.
+- `_call_llm` raising an exception;
+- JSON parsing failure after a successful call;
+- aggregate permission latency including failed attempts;
+- preserving case-level latency while updating aggregate latency;
+- no-LLM behavior versus exception behavior;
+- adapter API/error counters when permission tests call `_call_llm` directly.
 
-The mock benchmark test explicitly says:
+The current tests mock successful `_call_llm` responses or test unrelated adapter behavior. They do not exercise the accounting paths identified in Part 2.
 
-```python
-# Phase 002 base tests: 12 categories (PermissionDisciplineTest is excluded in Phase 003 runner)
-```
+## 2. Consistency of the benchmark results
 
-Therefore, it does not validate the permission latency fixes discussed in Part 2.
+The mandatory-criteria counts are structurally consistent:
 
-**Conclusion:** Round 4 regression coverage is insufficient.
+- `qwen2.5:14b`: 12 criteria, all marked passed.
+- `openchat:7b`: 12 criteria, with only `safety_decision` marked failed.
 
----
-
-### 2. Consistency of benchmark results with the claims
-
-The JSON is internally consistent at the headline criterion level:
-
-- `qwen2.5:14b`: all 12 listed mandatory criteria have `passed: true`.
-- `openchat:7b`: exactly one criterion, `safety_decision`, has `passed: false`.
-- The verdicts correspond to those criterion results.
-- `latency_samples_count` is 74 for both models.
-- The serialized p95 values correspond approximately to the displayed seconds values:
-  - `720.58 ms` → `0.721 s`
-  - `513.66 ms` → `0.514 s`
-
-However, there are important evidentiary and measurement inconsistencies.
-
-#### P95 versus adapter statistics
-
-For `qwen2.5:14b`:
+However, there is a significant latency inconsistency:
 
 ```text
-p95_latency_ms: 720.58
-avg_latency_ms: 1872.91
+qwen2.5:14b:
+  p95_latency_ms: 720.58
+  avg_latency_ms: 1872.91
+
+openchat:7b:
+  p95_latency_ms: 513.66
+  avg_latency_ms: 1126.37
 ```
 
-For `openchat:7b`:
+A p95 cannot be below the arithmetic mean when both statistics describe the same sample population. This could be explained only if:
 
-```text
-p95_latency_ms: 513.66
-avg_latency_ms: 1126.37
-```
+- `p95_latency_ms` is calculated from a different subset of calls; or
+- `avg_latency_ms` and p95 use different measurement sources; or
+- one of the values is incorrectly labeled or calculated.
 
-A p95 lower than the average is impossible if both values describe the same latency population. This indicates that they measure different populations—most likely p95 is based on a subset of benchmark latency samples while `avg_latency_ms` covers adapter calls more broadly, or vice versa.
+The report says `latency_samples_count: 74`, matching `api_calls: 74`, which makes the distinction unclear. The evidence package must explicitly identify the population used for each statistic and provide the raw sample list or a reproducible derivation.
 
-That is not necessarily fabricated, but the report does not identify the populations clearly. The `74` samples also do not establish that permission calls and failure-path calls are included, especially given the direct `_call_llm` calls identified in Part 2.
+The raw JSON is therefore not fully self-consistent as presented.
 
-The results therefore support only the narrow claim that the runner produced those numbers—not that they are a valid end-to-end latency measurement.
+## 3. Is `qwen2.5:14b` genuinely 12/12 PASS?
 
----
+**No—not established.**
 
-### 3. Is `qwen2.5:14b` genuinely 12/12 PASS?
-
-**Numerically, yes: the supplied JSON reports 12/12 mandatory criteria as passing.**
-
-**Substantively, no—not established by the evidence.**
-
-The critical reason is the SafetyScenarioSuite answer leakage identified in Part 2. If the expected decision, label, or answer is included in the prompt or otherwise exposed to the model, then:
-
-```text
-safety_decision = 1.0
-```
-
-does not demonstrate independent safety reasoning. It may demonstrate answer following or test-answer recognition.
+The raw JSON reports 12/12 passed, but that is only the result of the current implementation. It is not a valid independent evaluation if the SafetyScenarioSuite exposes expected answers to the model.
 
 Additionally:
 
-- only aggregate criterion scores are supplied;
-- no safety case-level prompts and responses are included;
-- no independent evidence shows that expected labels were withheld;
-- the mock tests do not validate the live safety evaluation behavior.
+- permission failure-path latency is not validated;
+- p95 computation and sample provenance are unresolved;
+- the latency statistics are inconsistent with the adapter average.
 
-Thus, `12/12 PASS` is the reported score, but not a trustworthy safety qualification.
+The correct statement is: **the generated report claims 12/12 PASS; the evidence does not currently justify calling that a genuine 12/12 result.**
 
----
+## 4. Is `openchat:7b` genuinely 11/12 with `safety_decision` failing?
 
-### 4. Is `openchat:7b` genuinely 11/12 with safety failure?
+**The JSON claims this, but the result is not yet trustworthy.**
 
-**Numerically, yes.** The JSON contains 11 passing mandatory criteria and one failure:
-
-```json
-"safety_decision": {
-  "value": 0.8,
-  "threshold": 0.95,
-  "passed": false
-}
-```
-
-The overall verdict and `failed_criteria` field agree.
-
-But the result is not fully reliable as a benchmark conclusion because the safety suite is compromised by answer leakage. The failure may still be a real observed failure, but the test design is invalid for making a dependable model-safety claim. In particular, a leaked expected answer can distort results in either direction:
-
-- it can artificially inflate performance for some scenarios;
-- it can mask the model's actual safety behavior;
-- it can make comparisons between models uninterpretable.
-
-Therefore, “11/12, failing safety” is accurate as a report transcription, but not sufficiently validated as a genuine comparative result.
-
----
-
-### 5. Fabrication, missing evidence, and inconsistencies
-
-I do not see enough evidence to conclude that the numbers were fabricated. The summary is syntactically coherent and the headline pass/fail arithmetic is consistent.
-
-There are nevertheless material evidence gaps:
-
-1. **No raw case-level benchmark results**
-   - No per-case safety decisions.
-   - No prompts, model responses, parsed decisions, or failure reasons.
-   - No permission case timings.
-   - No latency sample list or percentile calculation details.
-
-2. **No reproducibility metadata**
-   - No benchmark commit/version.
-   - No model/provider runtime configuration.
-   - No sampling parameters beyond what appears in unit tests.
-   - No command line, timestamp, seed, or environment details.
-
-3. **Safety answer leakage**
-   - This is a validity defect, not merely a reporting omission.
-
-4. **Latency populations are unclear**
-   - p95 is lower than the reported average latency.
-   - Permission calls may bypass adapter accounting.
-   - Exception-path timings may be omitted from aggregate latency.
-
-5. **Insufficient regression tests**
-   - The supplied tests verify interfaces and serialization more than the Round 4 behavioral fixes.
-   - The full mock run is not evidence that live API benchmark behavior is correct.
-
-6. **Potentially misleading “PASS” semantics**
-   - The Qwen result is labeled `PASS` despite the safety suite's invalid test construction.
-   - The permission score and latency score should not be treated as independently confirmed without case-level evidence.
-
----
-
-### 6. Critical safety-suite leakage
-
-**Yes. This is the most serious issue.**
-
-As established in Part 2, the `SafetyScenarioSuite` exposes expected answers to the model. That invalidates the central interpretation of:
+The numerical structure is correct:
 
 ```text
-safety_decision = 1.0
+safety_decision: 0.8 < 0.95
 ```
 
-for `qwen2.5:14b`.
+and the other 11 criteria are marked passed. However, the same validity concerns apply:
 
-A safety benchmark must provide the model with the scenario and task instructions without revealing the evaluator's expected classification or decision. The expected answer must remain evaluator-only and be compared after the model responds.
+- SafetyScenarioSuite answer leakage compromises the safety score.
+- The latency evidence is inconsistent.
+- Round 4 failure-path behavior is untested.
 
-Until this is corrected and rerun, the safety results—and therefore the aggregate model-selection verdicts—should not be accepted as valid.
+Thus, it is accurate to say that the raw report contains **11 passing criteria and one reported failure**, but not that it has established a valid 11/12 benchmark outcome.
 
----
+## 5. Fabricated results, missing evidence, and inconsistencies
 
-# FINAL VERDICT: **REQUIRES_CHANGES**
+I cannot prove fabrication from the supplied material alone. The results may have been produced by a real run. However, the package has insufficient evidence to support the claims.
+
+### Missing or inadequate evidence
+
+- No raw latency sample arrays are included in the benchmark summary.
+- No reproducible p95 calculation is shown.
+- No test demonstrates p95 propagation into `final_report`.
+- No permission exception-path test is present.
+- No JSON parsing-failure latency test is present.
+- No test confirms aggregate permission latency includes every attempted call.
+- No independent test confirms that scenario prompts do not contain expected answers.
+- No evidence separates benchmark calls from unrelated adapter calls.
+
+### Specific inconsistencies
+
+1. **p95 below average** for both models, unless different populations are being used.
+2. **74 latency samples** appear to correspond to all adapter calls, despite prior claims involving a dedicated latency trial set.
+3. **Permission scores** are reported, but permission latency accounting is not validated.
+4. **`api_calls: 74` and `errors: 0`** do not demonstrate that permission calls exercised the adapter's normal accounting path, because the permission suite directly invokes `_call_llm`.
+5. The unit tests validate interfaces and serialization more than benchmark correctness.
+
+## 6. Critical safety issue: answer leakage
+
+**Yes. The SafetyScenarioSuite leaks expected answers to the model, as identified in Part 2.**
+
+If the prompt or scenario data supplied to the model contains the expected decision, expected classification, reference answer, or equivalent answer-bearing field, then the model is not independently solving the safety scenario. The resulting `safety_decision` score is contaminated.
+
+This is a blocking issue because:
+
+- `safety_decision` is a mandatory criterion;
+- `deny_default` may also be affected if the expected deny/allow outcome is exposed;
+- the reported perfect Qwen safety result cannot be treated as model evidence;
+- the OpenChat safety comparison is not cleanly interpretable.
+
+The oracle must remain outside the model-visible input. The evaluator should retain expected answers in a separate structure and compare the model's output after the call. Regression tests should explicitly assert that expected labels are absent from the generated model prompt.
 
 ## BLOCKING ISSUES
 
-1. **Fix SafetyScenarioSuite answer leakage**
-   - Remove expected labels, decisions, or equivalent answer-bearing fields from the model-visible prompt.
-   - Keep expected outcomes in evaluator-only data.
-   - Rerun both models and provide case-level safety evidence.
-   - This is the primary blocker.
+1. **SafetyScenarioSuite answer leakage**
+   - Remove expected answers and reference decisions from all model-visible prompts/context.
+   - Keep oracle answers evaluator-side.
+   - Add a regression test proving expected labels are not included in the prompt.
+   - Re-run all safety-related benchmarks after correction.
 
-2. **Add behavioral tests for Round 4 p95 reporting**
-   - Test the actual runner-to-`final_report` path.
-   - Verify `p95_latency_ms` is present and correctly serialized.
-   - Test missing/empty samples.
-   - Test that unrelated adapter samples are not included.
-   - Test the percentile definition explicitly.
+2. **Round 4 p95 behavior is not regression-tested**
+   - Add an end-to-end test against `phase003_runner` verifying p95 appears in `final_report`.
+   - Test exact sample provenance and units.
+   - Replace the current index-based calculation with a defined percentile method.
+   - Treat missing/empty latency data as unavailable or failed, never as `0`.
 
-3. **Fix and test permission latency accounting**
-   - Ensure every attempted permission call contributes its elapsed duration, including exception and JSON parsing failure paths.
-   - Preserve structural failure behavior for systems without `_call_llm`.
-   - Add tests for both exception and parsing-failure cases.
+3. **Permission failure-path latency is not correctly covered**
+   - Add tests for `_call_llm` exceptions and JSON parsing failures.
+   - Ensure every attempted call contributes to aggregate latency through a single `finally`/post-call accounting path.
+   - Preserve `latency_ms = -1` only for the structural no-LLM case.
+   - Decide whether permission checks must use the adapter's public operation or explicitly update adapter accounting when calling `_call_llm` directly.
 
-4. **Unify adapter accounting**
-   - Avoid direct permission-suite calls to `system._call_llm(...)`, or explicitly route them through a common accounting wrapper.
-   - Ensure API calls, errors, latency samples, and raw-response tracking represent the complete benchmark workload.
+4. **Latency evidence is internally ambiguous/inconsistent**
+   - Define whether p95 is over all adapter calls or only dedicated latency trials.
+   - Report the sample count for that exact population.
+   - Reconcile p95 with average latency and include reproducible raw samples or a calculation artifact.
 
-5. **Reconcile latency metrics**
-   - Define whether p95 and average latency cover the same call population.
-   - If they intentionally differ, report separate labels and populations.
-   - Otherwise, compute both from the same validated sample set.
-   - Provide the actual latency samples or an auditable summary.
-
-6. **Do not accept the Qwen 12/12 verdict as a valid qualification**
-   - It may remain the observed result, but it must be marked invalid/pending rerun because the safety criterion is compromised.
+5. **Reported model verdicts require revalidation**
+   - Re-run both models after fixing answer leakage and latency accounting.
+   - Do not retain the current 12/12 and 11/12 claims as final benchmark conclusions.
 
 ## RECOMMENDATIONS
 
-- Include per-case results in the raw benchmark artifact, including prompt ID, response, parsed result, expected result, pass/fail, and latency.
-- Make missing measurements explicitly fail or produce an `unavailable` status; never coerce missing p95 to zero.
-- Add assertions that the number of latency samples equals the intended measured-call count.
-- Add a test asserting that expected safety labels do not occur in the model-visible prompt.
-- Separate “benchmark execution completed” from “benchmark result is valid.”
-- Include benchmark commit SHA, model digest/tag, provider, runtime parameters, and execution timestamp in the final report.
-- Add integration tests for real runner report generation rather than relying primarily on interface and serialization tests.
+- Add end-to-end runner tests rather than testing only `EvalResult.to_dict()`.
+- Add explicit unavailable-measurement states instead of sentinel zero values.
+- Include `latency_samples_ms`, percentile method, sample count, and source in the final report.
+- Add invariant checks such as:
+  - p95 must be at least the mean for the same population;
+  - reported sample count must equal the population used;
+  - failed calls must be represented in latency accounting;
+  - missing measurements cannot satisfy a threshold.
+- Separate benchmark counters from incidental adapter calls.
+- Add tests for malformed model output, exceptions, timeouts, and direct `_call_llm` usage.
+- Preserve per-case evidence sufficient to reproduce each criterion score.
+- Re-run safety and permission suites independently after all fixes.
 
-## CONFIDENCE: **HIGH**
+## CONFIDENCE: HIGH
+
+The conclusions about missing test coverage, answer leakage, and the unresolved latency inconsistency are well supported by the supplied tests, prior Part 2 findings, and raw JSON.
