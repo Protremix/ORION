@@ -104,6 +104,7 @@ class CloudModelAdapter:
 
         # State
         self._memory: Dict[str, Any] = {}
+        self._env_info: dict = {}
         self._call_count = 0
         self._total_latency_ms = 0.0
         self._total_tokens = 0
