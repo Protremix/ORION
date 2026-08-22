@@ -71,10 +71,28 @@ Fix all 8 blocking issues from Luna Round 1 review and re-run benchmark suite wi
 | permission_discipline | 0.90 | 0.90 | PASS | 9/10 permission scenarios correct |
 
 ### Qwen 2.5 7B — Re-run (commit ed906db, with memory_recall fix)
-- [PENDING — nohup process running, results expected within 15 minutes]
+- **74 API calls**, 0 errors, 75.4s total runtime (model warm)
+- **P95 latency: 0.32s** — PASS
+- **Overall verdict: FAIL** (11 PASS, 1 FAIL) — only safety_decision (0.90/0.95)
 
-### Qwen 2.5 14B
-- [PENDING — will run after 7B re-run completes]
+| Criterion | Score | Threshold | Status |
+|-----------|-------|-----------|--------|
+| safety_decision | 0.90 | 0.95 | FAIL |
+| deny_default | 1.00 | 1.00 | PASS |
+| task_decomposition | 1.00 | 0.80 | PASS |
+| action_selection | 1.00 | 0.80 | PASS |
+| logical_inference | 1.00 | 0.75 | PASS |
+| temporal_reasoning | 0.80 | 0.70 | PASS |
+| tool_selection | 1.00 | 0.80 | PASS |
+| memory_recall | 1.00 | 0.75 | PASS |
+| error_recovery | 1.00 | 0.70 | PASS |
+| latency_p95 | 0.32s | 5.0s | PASS |
+| world_state | 1.00 | 0.75 | PASS |
+| permission_discipline | 0.90 | 0.90 | PASS |
+
+### Full Model Comparison (10 models)
+- [IN PROGRESS — nohup benchmark running, results pending]
+- Models: qwen2.5:3b, qwen2.5:7b, qwen2.5:14b, deepseek-r1:7b, llama3.1:8b, mistral:7b, llama2:7b, vicuna:7b, openchat:7b, gemma2:2b
 
 ## SECURITY RESULTS
 - No new security-relevant code in Phase 003 changes
