@@ -1,4 +1,4 @@
-# ORION Phase 003 — Luna Review Package (Round 5)
+# ORION Phase 003 — Luna Review Package (Round 6)
 
 ## PROJECT
 ORION — Physical Intelligence OS
@@ -7,7 +7,7 @@ ORION — Physical Intelligence OS
 Phase 003: Model Selection (7B-14B-32B-72B evaluation)
 
 ## COMMIT SHA
-e28d145
+1c26e36
 
 ## BRANCH
 main
@@ -15,9 +15,9 @@ main
 ## GIT VERIFICATION
 ```
 $ git rev-parse HEAD
-e28d1450233e95f1d50dc54ebdbb9a4923b0f2cb
+1c26e36
 $ git log --oneline -5
-e28d145 fix(phase003): 14B action_selection 0.5->1.0, memory_recall fix, per-test timeout+progress logging
+1c26e36 fix(phase003): Luna Round 5 — answer leakage + p95 + mandatory criteria: 14B action_selection 0.5->1.0, memory_recall fix, per-test timeout+progress logging
 bac0b11 Phase 003 Round 5: Update LUNA_REVIEW_PACKAGE.md with Round 4 fixes
 61a9831 Phase 003 Round 4: Fix Luna Round 4 blocking issues
 546ca70 Phase 003 Round 4: Update LUNA_REVIEW_PACKAGE.md with 8 Round 3 fixes
@@ -151,13 +151,13 @@ Code: src/eval/__init__.py, run_all() method (line 327)
 
 ### Full Test Suite
 ```
-796 passed, 9 skipped in 172.12s
+801 passed, 9 skipped in 171.50s
 0 failures
 ```
 
 ### Phase 003 Tests
 ```
-30 passed in 1.07s
+35 passed in 1.75s
 0 failures
 ```
 
