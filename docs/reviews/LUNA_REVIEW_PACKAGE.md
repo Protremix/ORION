@@ -7,7 +7,7 @@ ORION — Physical Intelligence OS
 Phase 003: Model Selection (7B→14B→32B→72B evaluation)
 
 ## COMMIT SHA
-161b246
+72a8c3e
 
 ## BRANCH
 main
