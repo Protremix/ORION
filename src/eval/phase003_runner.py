@@ -344,6 +344,8 @@ def run_phase003_benchmark(
         "model_info": model_info,
         "environment_info": env_info,
         "endpoint": adapter.api_base,
+        "p95_latency_ms": round(p95_latency_ms, 2),
+        "p95_latency_s": round(p95_latency_s, 4),
         "latency_samples_ms": latency_samples,
         "mandatory_criteria": criteria_results,
         "optional_criteria": optional_results,
@@ -552,7 +554,7 @@ def main():
                         "verdict": r["overall_verdict"],
                         "failed_criteria": r["failed_criteria"],
                         "adapter_errors": r["adapter_stats"]["errors"],
-                        "p95_latency_s": r.get("p95_latency_ms", 0) / 1000.0 if isinstance(r.get("p95_latency_ms"), (int, float)) else 0.0,
+                        "p95_latency_s": r.get("p95_latency_s", 0.0),
                     }
                     for i, r in enumerate(all_results)
                 ],

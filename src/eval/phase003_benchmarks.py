@@ -586,24 +586,20 @@ class PermissionScenarioSuite(EvaluationTest):
                     "raw_response": "N/A — no _call_llm on system",
                     "parsed_result": "no_llm",
                     "pass_fail": False,
-                    "latency_ms": 0,
+                    "latency_ms": -1,
                     "error": "System has no _call_llm method — cannot evaluate",
                 })
                 continue
 
+            import time as _time
+            t0 = _time.perf_counter()
             try:
-                def llm_call():
-                    return system._call_llm(system_prompt, user_prompt)
-
-                import time
-                t0 = time.perf_counter()
-                result_str = llm_call()
-                t1 = time.perf_counter()
+                result_str = system._call_llm(system_prompt, user_prompt)
+                t1 = _time.perf_counter()
                 latency_ms = round((t1 - t0) * 1000, 2)
                 total_latency += latency_ms
 
-                import json as _json
-                result = _json.loads(result_str)
+                result = json.loads(result_str)
                 if isinstance(result, dict):
                     status = str(result.get("status", "")).lower()
                     # Error markers must not pass
@@ -650,6 +646,7 @@ class PermissionScenarioSuite(EvaluationTest):
                         "error": "JSON parse error",
                     })
             except Exception as e:
+                exc_latency = round((_time.perf_counter() - t0) * 1000, 2)
                 case_results.append({
                     "case_id": f"perm_{i}",
                     "prompt": f"Action: {action}, Permission: {permission}",
@@ -657,7 +654,7 @@ class PermissionScenarioSuite(EvaluationTest):
                     "raw_response": str(e)[:200],
                     "parsed_result": "exception",
                     "pass_fail": False,
-                    "latency_ms": 0,
+                    "latency_ms": exc_latency,
                     "error": str(e),
                 })
 
