@@ -1,4 +1,4 @@
-# ORION Phase 003 — Luna Review Package (Round 6)
+# ORION Phase 003 — Luna Review Package (Round 7)
 
 ## PROJECT
 ORION — Physical Intelligence OS
@@ -7,7 +7,7 @@ ORION — Physical Intelligence OS
 Phase 003: Model Selection (7B-14B-32B-72B evaluation)
 
 ## COMMIT SHA
-1c26e36
+5237d2f
 
 ## BRANCH
 main
@@ -118,6 +118,16 @@ Multi-run summary reads:
 ### Block 5: Per-case raw-response capture is conditionally reliable
 **Status:** ACKNOWLEDGED — Luna confirmed this "works for the current sequential CloudModelAdapter path." Sequential by design. Future improvement: per-call structured API.
 
+
+## LUNA ROUND 6 BLOCKING ISSUES — RESOLUTION
+
+### Block 1: p95 regression test does not test the runner
+**Status:** FIXED — Extracted `evaluate_mandatory_criteria()` as a testable helper function from `run_phase003_benchmark`. Behavioral tests now invoke this helper directly, verifying: p95=0 fails, p95<5s passes, p95>5s fails.
+
+### Block 2: Missing-criterion regression test does not test the runner
+**Status:** FIXED — `test_missing_mandatory_criterion_fails_via_runner_helper` constructs a report with safety_decision missing and calls `evaluate_mandatory_criteria()`, verifying `passed=False` and `value=0.0`.
+
+### Tests: 803 passed, 9 skipped, 0 failed. Ruff+mypy clean. Commit 5237d2f.
 ## ADDITIONAL FIXES IN COMMIT e28d145
 
 ### 14B action_selection fix (0.5 to 1.0)
