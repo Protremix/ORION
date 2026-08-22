@@ -195,7 +195,7 @@ class MemoryManager:
             now = time.time()
             provenance = Provenance(
                 writer_id="supervisor",
-                writer_permissions=["write"],
+                writer_permissions=["memory:write:cognitive"],
                 source_type=source_type,
             )
 

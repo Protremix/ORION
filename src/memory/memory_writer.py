@@ -110,7 +110,7 @@ class MemoryWriter:
 
         # Step 4: Store — write_memory returns (MemoryEntry, ValidationResult) tuple
         try:
-            stored_entry, validation_result = self._store.write_memory(entry)
+            stored_entry, validation_result = self._store.write_memory(entry, actor_permissions=["memory:write:cognitive"])
             if stored_entry is None:
                 return WriteResult(
                     success=False,
@@ -172,7 +172,7 @@ class MemoryWriter:
             )
 
         try:
-            perms = writer_permissions or ["write"]
+            perms = writer_permissions or ["memory:write:cognitive"]
             updated_entry, val_result = self._store.update_memory(
                 memory_id, content, writer_id, perms
             )
@@ -206,7 +206,7 @@ class MemoryWriter:
             return False
 
         try:
-            self._store.delete_memory(memory_id, soft=True)
+            self._store.delete_memory(memory_id, soft=True, actor_permissions=["admin"])
             logger.info("Memory soft-deleted: id=%s", memory_id)
             return True
         except Exception as e:

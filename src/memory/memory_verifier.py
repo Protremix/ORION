@@ -7,10 +7,9 @@ and resolves conflicts. Uses existing ContradictionDetector from Phase 1.
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from src.memory.memory_system import (
     ContradictionDetector,
@@ -112,20 +111,21 @@ class MemoryVerifier:
             if temp_entry is None:
                 continue
 
-            has_contradiction, reason = self._detector.check_contradictions(
+            # check_contradictions returns (ContradictionStatus, List[str], List[str])
+            _, contr_ids, contr_details = self._detector.check_contradictions(
                 new_entry=temp_entry,
                 existing_entries=semantic_entries,
             )
 
-            if has_contradiction:
-                conflict = self._find_conflicting_memory(temp_entry, semantic_entries, reason)
-                if conflict:
+            if contr_ids:
+                conflict_entry = self._find_conflicting_memory(temp_entry, semantic_entries)
+                if conflict_entry:
                     report.conflicts_found += 1
                     report.conflicts.append(VerificationConflict(
-                        memory_id=conflict.id,
-                        memory_content=str(conflict.content),
+                        memory_id=conflict_entry.id,
+                        memory_content=str(conflict_entry.content),
                         observation=str(obs_content),
-                        conflict_reason=reason,
+                        conflict_reason=";".join(contr_details),
                     ))
             else:
                 confirmed = self._find_matching_memory(temp_entry, semantic_entries)
@@ -155,7 +155,7 @@ class MemoryVerifier:
             new_content = observation.get("content", existing.content)
             try:
                 updated, _ = self._store.update_memory(
-                    memory_id, new_content, "verifier", ["write"]
+                    memory_id, new_content, "verifier", ["memory:write:cognitive"]
                 )
                 logger.info("Conflict resolved (OVERWRITE): %s", memory_id)
                 return updated is not None
@@ -171,7 +171,7 @@ class MemoryVerifier:
             try:
                 flagged_content = {**existing.content, "_conflict_flagged": True}
                 updated, _ = self._store.update_memory(
-                    memory_id, flagged_content, "verifier", ["write"]
+                    memory_id, flagged_content, "verifier", ["memory:write:cognitive"]
                 )
                 logger.info("Conflict flagged for review: %s", memory_id)
                 return updated is not None
@@ -195,9 +195,9 @@ class MemoryVerifier:
     ) -> Optional[MemoryEntry]:
         """Create a temporary MemoryEntry for contradiction detection."""
         try:
-            entry = SemanticMemory(
-                content=content,
+            return SemanticMemory(
                 memory_type=memory_type,
+                content=content,
                 confidence=content.get("confidence", 1.0),
                 provenance=Provenance(
                     writer_id="verifier",
@@ -205,7 +205,6 @@ class MemoryVerifier:
                     source_type=SourceType.INFERENCE,
                 ),
             )
-            return entry
         except Exception as e:
             logger.error("Failed to create temp entry: %s", e)
             return None
@@ -214,15 +213,14 @@ class MemoryVerifier:
         self,
         new_entry: MemoryEntry,
         existing: List[MemoryEntry],
-        reason: str,
     ) -> Optional[MemoryEntry]:
         """Find which existing memory conflicts with the new entry."""
         for entry in existing:
-            has_conflict, _ = self._detector.check_contradictions(
+            _, conflict_ids, _ = self._detector.check_contradictions(
                 new_entry=new_entry,
                 existing_entries=[entry],
             )
-            if has_conflict:
+            if conflict_ids:
                 return entry
         return None
 
@@ -233,11 +231,11 @@ class MemoryVerifier:
     ) -> Optional[MemoryEntry]:
         """Find a memory that matches/confirms the new entry."""
         for entry in existing:
-            has_conflict, _ = self._detector.check_contradictions(
+            _, conflict_ids, _ = self._detector.check_contradictions(
                 new_entry=new_entry,
                 existing_entries=[entry],
             )
-            if not has_conflict and self._content_matches(new_entry.content, entry.content):
+            if not conflict_ids and self._content_matches(new_entry.content, entry.content):
                 return entry
         return None
 
